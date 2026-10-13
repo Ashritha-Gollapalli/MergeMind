@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const authRoutes = require("./routes/authRoutes");
-
+const projectRoutes = require("./routes/projectRoutes");
 const app = express();
 
 app.use(helmet());
@@ -18,7 +18,7 @@ app.get("/api/health", (req, res) => {
   });
 });
 app.use("/api/auth", authRoutes);
-
+app.use("/api/projects", projectRoutes);
 app.use((req, res) => {
   res.status(404).json({
     success: false,
