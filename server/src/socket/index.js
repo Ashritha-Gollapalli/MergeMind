@@ -222,7 +222,7 @@ function registerSocketHandlers(io) {
           socket.to(getRoom(projectId)).emit("project:yjs-update", {
             projectId: projectId.toString(),
             update,
-            userName: userName || socket.userName || "Collaborator",
+            userName: socket.userName || "Collaborator",
             lineNumber,
           });
 
