@@ -45,6 +45,10 @@ const projectSchema = new mongoose.Schema(
   type: String,
   default: "",
 },
+yjsState: {
+  type: String,
+  default: "",
+},
   },
   { timestamps: true }
 );

@@ -1333,6 +1333,25 @@ textarea {
   font-size: 11px;
 }
 
+.merge-mind-collab-label-box {
+  background: rgba(123, 92, 255, 0.22);
+  border: 1px solid rgba(172, 146, 255, 0.4);
+  border-radius: 999px;
+  color: #e9defd;
+  margin-left: 6px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.merge-mind-collab-label {
+  color: #f3ebff;
+}
+
+.merge-mind-collab-glyph {
+  background: rgba(123, 92, 255, 0.1);
+}
+
 .ide-assistant {
   display: flex;
   flex: 0 0 260px;

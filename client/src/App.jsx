@@ -291,6 +291,7 @@ async function handleRemoveMember(userId) {
     <CodeEditor
   project={selectedProject}
   token={token}
+  user={user}
   onBack={() => setShowCodeEditor(false)}
 />
   ) : (
