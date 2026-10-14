@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "./api";
+import CodeEditor from "./components/CodeEditor";
 import "./App.css";
 
 function App() {
@@ -8,11 +9,17 @@ function App() {
   );
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState(null);
+const [projectDetailsLoading, setProjectDetailsLoading] = useState(false);
   const [mode, setMode] = useState("login");
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+const [inviteRole, setInviteRole] = useState("editor");
+const [memberLoading, setMemberLoading] = useState(false);
+const [showCodeEditor, setShowCodeEditor] = useState(false);
 
   const [authForm, setAuthForm] = useState({
     name: "",
@@ -29,6 +36,27 @@ function App() {
     const data = await apiRequest("/projects", {}, activeToken);
     setProjects(data.projects || []);
   }
+async function handleOpenProject(projectId) {
+  setError("");
+  setSuccess("");
+  setSelectedProject(null);
+  setProjectDetailsLoading(true);
+
+  try {
+    const data = await apiRequest(
+      `/projects/${projectId}`,
+      {},
+      token
+    );
+
+    setSelectedProject(data.project);
+  } catch (err) {
+    setError(err.message || "Could not load project details.");
+  } finally {
+    setProjectDetailsLoading(false);
+  }
+}
+
 
   useEffect(() => {
     async function restoreSession() {
@@ -52,6 +80,83 @@ function App() {
 
     restoreSession();
   }, [token]);
+async function handleInviteMember(event) {
+  event.preventDefault();
+  setError("");
+  setSuccess("");
+  setMemberLoading(true);
+
+  try {
+    const data = await apiRequest(
+      `/projects/${selectedProject._id}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          role: inviteRole,
+        }),
+      },
+      token
+    );
+
+    setInviteEmail("");
+    setSuccess(data.message || "Member added successfully.");
+
+    await handleOpenProject(selectedProject._id);
+  } catch (err) {
+    setError(err.message || "Could not add member.");
+  } finally {
+    setMemberLoading(false);
+  }
+}
+
+
+async function handleUpdateMemberRole(userId, role) {
+  setError("");
+  setSuccess("");
+
+  try {
+    const data = await apiRequest(
+      `/projects/${selectedProject._id}/members/${userId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      },
+      token
+    );
+
+    setSuccess(data.message || "Member role updated.");
+
+    await handleOpenProject(selectedProject._id);
+  } catch (err) {
+    setError(err.message || "Could not update member role.");
+  }
+}
+
+async function handleRemoveMember(userId) {
+  const confirmed = window.confirm(
+    "Are you sure you want to remove this member from the project?"
+  );
+
+  if (!confirmed) return;
+
+  setError("");
+  setSuccess("");
+
+  try {
+    const data = await apiRequest(
+      `/projects/${selectedProject._id}/members/${userId}`,
+      { method: "DELETE" },
+      token
+    );
+
+    setSuccess(data.message || "Member removed successfully.");
+
+    await handleOpenProject(selectedProject._id);
+  } catch (err) {
+    setError(err.message || "Could not remove member.");
+  }
+}
 
   function handleAuthChange(event) {
     setAuthForm({
@@ -59,7 +164,6 @@ function App() {
       [event.target.name]: event.target.value,
     });
   }
-
   async function handleAuthSubmit(event) {
     event.preventDefault();
     setError("");
@@ -175,7 +279,188 @@ function App() {
           </div>
         </header>
 
-        <section className="dashboard">
+       {projectDetailsLoading ? (
+  <section className="dashboard">
+    <div className="loading-state">
+      <div className="loader" />
+      <p>Loading project details...</p>
+    </div>
+  </section>
+) : selectedProject ? (
+   showCodeEditor ? (
+    <CodeEditor
+      project={selectedProject}
+      onBack={() => setShowCodeEditor(false)}
+    />
+  ) : (
+  <section className="dashboard project-details">
+    <button
+      className="button button-secondary back-button"
+      onClick={() => {
+        setSelectedProject(null);
+        setError("");
+        setSuccess("");
+      }}
+    >
+      ← Back to Projects
+    </button>
+
+    {error && <div className="alert alert-error">{error}</div>}
+    {success && <div className="alert alert-success">{success}</div>}
+
+    <div className="project-detail-header">
+      <div className="project-icon detail-icon">
+        {selectedProject.name?.charAt(0)?.toUpperCase() || "P"}
+      </div>
+
+      <div>
+        <p className="eyebrow">PROJECT WORKSPACE</p>
+        <h1>{selectedProject.name}</h1>
+        <p className="subtitle">
+          {selectedProject.description || "No description provided."}
+        </p>
+      </div>
+    </div>
+    <button
+  className="button button-primary"
+  onClick={() => setShowCodeEditor(true)}
+>
+  Open Code Editor →
+</button>
+
+    <section className="create-panel detail-panel">
+      <div>
+        <p className="eyebrow">PROJECT INFORMATION</p>
+        <h2>Overview</h2>
+      </div>
+
+      <div className="detail-info">
+        <div>
+          <span className="muted">Owner</span>
+          <strong>
+            {selectedProject.owner?.name ||
+              selectedProject.owner?.email ||
+              "Project owner"}
+          </strong>
+        </div>
+
+        <div>
+          <span className="muted">Members</span>
+          <strong>{selectedProject.members?.length || 0}</strong>
+        </div>
+      </div>
+    </section>
+
+    <section className="projects-section">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">COLLABORATION</p>
+          <h2>Project members</h2>
+        </div>
+        <span className="muted">
+          {selectedProject.members?.length || 0} total
+        </span>
+        </div>
+<form className="invite-form" onSubmit={handleInviteMember}>
+  <label>
+    Collaborator email
+    <input
+      type="email"
+      required
+      value={inviteEmail}
+      onChange={(event) => setInviteEmail(event.target.value)}
+      placeholder="teammate@example.com"
+    />
+  </label>
+
+  <label>
+    Role
+    <select
+      value={inviteRole}
+      onChange={(event) => setInviteRole(event.target.value)}
+    >
+      <option value="editor">Editor</option>
+      <option value="viewer">Viewer</option>
+      <option value="admin">Admin</option>
+    </select>
+  </label>
+
+  <button
+    className="button button-primary"
+    type="submit"
+    disabled={memberLoading}
+  >
+    {memberLoading ? "Adding..." : "Add member"}
+  </button>
+</form>
+
+
+      <div className="member-list">
+        {(selectedProject.members || []).map((member) => {
+          const memberUser = member.user;
+
+          return (
+            <article
+              className="member-card"
+              key={memberUser?._id || memberUser?.email}
+            >
+              <div className="member-avatar">
+                {(memberUser?.name || memberUser?.email || "?")
+                  .charAt(0)
+                  .toUpperCase()}
+              </div>
+
+              <div className="member-info">
+                <strong>
+                  {memberUser?.name || "Unnamed member"}
+                </strong>
+                <span>
+                  {memberUser?.email || "Email unavailable"}
+                </span>
+              </div>
+<div className="member-actions">
+  <span className="role-badge">
+    {member.role || "viewer"}
+  </span>
+  {memberUser?._id !== selectedProject.owner?._id && (
+    <>
+      <select
+        className="member-role-select"
+        aria-label={`Change role for ${memberUser?.name || memberUser?.email}`}
+        value={member.role || "viewer"}
+        onChange={(event) =>
+          handleUpdateMemberRole(memberUser._id, event.target.value)
+        }
+      >
+        <option value="editor">Editor</option>
+        <option value="viewer">Viewer</option>
+        <option value="admin">Admin</option>
+      </select>
+
+      <button
+        type="button"
+        className="button button-secondary remove-member-button"
+        onClick={() => handleRemoveMember(memberUser._id)}
+      >
+        Remove
+      </button>
+    </>
+  )}
+</div>
+
+            </article>
+          );
+        })}
+
+        {!selectedProject.members?.length && (
+          <p className="muted">No members found for this project.</p>
+        )}
+      </div>
+    </section>
+  </section>
+  )
+) : (
+  <section className="dashboard">
           <div className="welcome-row">
             <div>
               <p className="eyebrow">YOUR WORKSPACE</p>
@@ -269,7 +554,19 @@ function App() {
             ) : (
               <div className="project-grid">
                 {projects.map((project) => (
-                  <article className="project-card" key={project._id}>
+                  <article
+  className="project-card clickable-project"
+  key={project._id}
+  role="button"
+  tabIndex={0}
+  onClick={() => handleOpenProject(project._id)}
+  onKeyDown={(event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleOpenProject(project._id);
+    }
+  }}
+>
                     <div className="project-card-top">
                       <div className="project-icon">
                         {project.name?.charAt(0)?.toUpperCase() || "P"}
@@ -297,7 +594,7 @@ function App() {
             )}
           </section>
         </section>
-
+)}
         <footer className="footer">
           MergeMind · Collaborate. Create. Code.
         </footer>
