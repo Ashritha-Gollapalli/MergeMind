@@ -41,6 +41,10 @@ const projectSchema = new mongoose.Schema(
       type: [projectMemberSchema],
       default: [],
     },
+    code: {
+  type: String,
+  default: "",
+},
   },
   { timestamps: true }
 );

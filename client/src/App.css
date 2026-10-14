@@ -985,3 +985,521 @@ textarea {
     min-height: 350px;
   }
 }
+
+/* MergeMind collaborative IDE layout */
+.ide-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #0d0f18;
+  color: #e5e7f0;
+  font-family: Inter, "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+.ide-shell button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.ide-topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 0 16px;
+  border-bottom: 1px solid #252838;
+  background: #101421;
+}
+
+.ide-logo {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: white;
+  font-weight: 800;
+}
+
+.ide-brand,
+.ide-workspace-name,
+.ide-top-actions,
+.ide-current-file,
+.ide-session-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ide-brand strong {
+  font-size: 16px;
+}
+
+.ide-beta {
+  padding: 3px 6px;
+  border: 1px solid #5b4a9a;
+  border-radius: 6px;
+  color: #bba5ff;
+  font-size: 10px;
+}
+
+.ide-workspace-name {
+  margin-left: 20px;
+  color: #c8cbda;
+}
+
+.workspace-avatar {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 7px;
+  background: #303b5b;
+  font-weight: 700;
+}
+
+.ide-top-actions {
+  margin-left: auto;
+}
+
+.ide-branch,
+.ide-action-button,
+.ide-run-button {
+  padding: 9px 12px;
+  border: 1px solid #303449;
+  border-radius: 8px;
+  background: #171b2b;
+  color: #e5e7f0;
+}
+
+.ide-run-button {
+  border-color: transparent;
+  background: #7957ef;
+  color: white;
+  font-weight: 700;
+}
+
+.ide-projectbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 18px;
+  border-bottom: 1px solid #252838;
+  background: #111523;
+}
+
+.ide-save-status,
+.ide-editor-meta {
+  color: #8e95aa;
+}
+
+.ide-live-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #42d6a0;
+}
+
+.ide-session-status {
+  color: #72e5bb;
+}
+
+.ide-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.ide-activitybar {
+  display: flex;
+  flex: 0 0 48px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-right: 1px solid #252838;
+  background: #101421;
+}
+
+.ide-activitybar button {
+  width: 36px;
+  height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #939bb4;
+  font-size: 20px;
+}
+
+.ide-activitybar button.active {
+  background: #242a40;
+  color: #b9a5ff;
+}
+
+.ide-explorer {
+  display: flex;
+  flex: 0 0 210px;
+  flex-direction: column;
+  overflow-y: auto;
+  border-right: 1px solid #252838;
+  background: #111523;
+}
+
+.ide-pane-title {
+  display: flex;
+  justify-content: space-between;
+  padding: 18px 14px;
+  color: #9ba2b7;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.ide-folder-name {
+  padding: 8px 14px;
+  color: #c6cadd;
+  font-weight: 600;
+}
+
+.ide-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px 0 28px;
+  border: 0;
+  background: transparent;
+  color: #b8bfd2;
+  text-align: left;
+}
+
+.ide-file:hover,
+.ide-file.active {
+  background: #27243f;
+  color: #f4f1ff;
+}
+
+.ide-file-icon {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  color: #c0a5ff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.ide-explorer-note,
+.ide-sidebar-message {
+  padding: 16px;
+  color: #858da4;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ide-sidebar-button {
+  margin: 0 12px;
+  padding: 9px;
+  border: 1px solid #35394e;
+  border-radius: 8px;
+  background: #191d2d;
+  color: #d9dcef;
+}
+
+.ide-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #0d0f18;
+}
+
+.ide-tabs {
+  display: flex;
+  min-height: 42px;
+  overflow-x: auto;
+  border-bottom: 1px solid #252838;
+  background: #111523;
+}
+
+.ide-tab {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 112px;
+  padding: 0 13px;
+  border: 0;
+  border-right: 1px solid #252838;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #9fa6bb;
+}
+
+.ide-tab.active {
+  border-bottom-color: #9b7cff;
+  background: #171b2a;
+  color: #f0edff;
+}
+
+.ide-tab-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #a78bfa;
+}
+
+.ide-editor-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 14px;
+  color: #9098af;
+  font-size: 12px;
+}
+
+.ide-editor-heading strong {
+  color: #d7dbeb;
+}
+
+.ide-editor-meta {
+  margin-left: auto;
+}
+
+.ide-monaco {
+  flex: 1;
+  min-height: 180px;
+}
+
+.ide-terminal {
+  display: flex;
+  flex: 0 0 155px;
+  flex-direction: column;
+  border-top: 1px solid #303449;
+  background: #0b0e16;
+}
+
+.ide-terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 37px;
+  padding: 0 14px;
+  border-bottom: 1px solid #252838;
+  color: #929ab0;
+  font-size: 11px;
+}
+
+.ide-terminal-header strong {
+  color: #e1e4f1;
+}
+
+.ide-terminal-header button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #a6aec2;
+  font-size: 20px;
+}
+
+.ide-terminal-content {
+  padding: 16px;
+  color: #c1c8da;
+  line-height: 1.7;
+}
+
+.terminal-prompt {
+  margin-right: 10px;
+  color: #9b83ff;
+}
+
+.ide-statusbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  min-height: 25px;
+  padding: 0 12px;
+  background: #6750cf;
+  color: white;
+  font-size: 11px;
+}
+
+.ide-assistant {
+  display: flex;
+  flex: 0 0 260px;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid #252838;
+  background: #111523;
+}
+
+.ide-assistant-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 12px;
+  border-bottom: 1px solid #252838;
+}
+
+.assistant-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: #27233f;
+  color: #c3adff;
+  font-size: 18px;
+}
+
+.ide-assistant-header > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ide-assistant-header small {
+  color: #8992a8;
+  font-size: 11px;
+}
+
+.ide-assistant-header button {
+  border: 0;
+  background: transparent;
+  color: #a6aec2;
+  font-size: 20px;
+}
+
+.ide-assistant-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 12px;
+}
+
+.ide-assistant-content > strong {
+  display: block;
+  margin: 12px 0;
+}
+
+.ide-assistant-content p {
+  color: #a4acc1;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.assistant-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.assistant-suggestions button {
+  padding: 7px 8px;
+  border: 1px solid #34394e;
+  border-radius: 7px;
+  background: #191d2d;
+  color: #d0d5e5;
+  font-size: 11px;
+}
+
+.ide-assistant-input {
+  padding: 10px;
+  border-top: 1px solid #252838;
+}
+
+.ide-assistant-input textarea {
+  width: 100%;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid #35394e;
+  border-radius: 8px;
+  background: #0d101a;
+  color: #f1f2f8;
+  font: inherit;
+}
+
+.ide-assistant-input button {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: #7957ef;
+  color: white;
+}
+
+.ide-assistant-disclaimer {
+  margin: 0;
+  padding: 0 10px 10px;
+  color: #838ba0;
+  font-size: 10px;
+}
+
+.ide-reopen-assistant {
+  align-self: flex-start;
+  margin: 12px;
+  padding: 10px;
+  border: 1px solid #35394e;
+  border-radius: 8px;
+  background: #191d2d;
+  color: #ded6ff;
+}
+
+@media (max-width: 1100px) {
+  .ide-assistant {
+    flex-basis: 220px;
+  }
+
+  .ide-explorer {
+    flex-basis: 175px;
+  }
+
+  .ide-workspace-name {
+    margin-left: 4px;
+  }
+}
+
+@media (max-width: 760px) {
+  .ide-explorer {
+    flex-basis: 135px;
+  }
+
+  .ide-assistant {
+    display: none;
+  }
+
+  .ide-workspace-name {
+    display: none;
+  }
+
+  .ide-topbar {
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .ide-branch {
+    display: none;
+  }
+
+  .ide-save-status {
+    display: none;
+  }
+}
+.ide-loading {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: #a4acc1;
+}
