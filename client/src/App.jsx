@@ -289,9 +289,10 @@ async function handleRemoveMember(userId) {
 ) : selectedProject ? (
    showCodeEditor ? (
     <CodeEditor
-      project={selectedProject}
-      onBack={() => setShowCodeEditor(false)}
-    />
+  project={selectedProject}
+  token={token}
+  onBack={() => setShowCodeEditor(false)}
+/>
   ) : (
   <section className="dashboard project-details">
     <button

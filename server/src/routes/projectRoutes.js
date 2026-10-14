@@ -24,6 +24,11 @@ const {
   updateMemberRole,
 } = require("../controllers/projectRoleController");
 
+const {
+  getProjectCode,
+  saveProjectCode,
+} = require("../controllers/codeController");
+
 const router = express.Router();
 
 router.use(protect);
@@ -47,6 +52,17 @@ router.delete(
   "/:projectId",
   allowProjectRoles("owner"),
   deleteProject
+);
+router.get(
+  "/:projectId/code",
+  allowProjectRoles("owner", "admin", "editor", "viewer"),
+  getProjectCode
+);
+
+router.put(
+  "/:projectId/code",
+  allowProjectRoles("owner", "admin", "editor"),
+  saveProjectCode
 );
 router.get("/:projectId", getProjectById);
 
