@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { io } from "socket.io-client";
-import { apiRequest } from "../api";
+import * as Y from "yjs";
+import { MonacoBinding } from "y-monaco";
 
 const initialFiles = {
   "App.jsx": `import React from "react";
@@ -42,18 +43,66 @@ const fileLanguages = {
   "README.md": "markdown",
 };
 
-function CodeEditor({ project, token, onBack }) {
-  const [files, setFiles] = useState({
-  "App.jsx": "",
-  "App.css": "",
-  "README.md": "",
-});
-const [codeLoading, setCodeLoading] = useState(true);
-const [saveStatus, setSaveStatus] = useState("Loading...");
-const saveTimer = useRef(null);
-const latestCode = useRef("");
-const isInitialLoad = useRef(true);
+function CodeEditor({ project, token, user, onBack }) {
+  const [files, setFiles] = useState(initialFiles);
+
+  const [codeLoading, setCodeLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState("Local preview");
+  const [lastEditedBy, setLastEditedBy] = useState("");
+  const saveTimer = useRef(null);
+  const latestCode = useRef("");
+  const editorRef = useRef(null);
+  const monacoRef = useRef(null);
+  const currentUserName = user?.name || user?.email || "You";
   const [activeFile, setActiveFile] = useState("App.jsx");
+
+  const showEditorBadge = (name, lineNumber = 1) => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+
+    if (!editor || !monaco || !name) return;
+
+    const model = editor.getModel();
+    const safeLine = Math.max(
+      1,
+      Number(lineNumber) || editor.getPosition()?.lineNumber || 1
+    );
+
+    if (!model) return;
+
+    editor.deltaDecorations([], [
+      {
+        range: new monaco.Range(safeLine, 1, safeLine, 1),
+        options: {
+          after: {
+            content: ` ${name}`,
+            inlineClassName: "merge-mind-collab-label",
+            className: "merge-mind-collab-label-box",
+          },
+          glyphMarginClassName: "merge-mind-collab-glyph",
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+        },
+      },
+    ]);
+  };
+
+  const bindEditorToSharedText = () => {
+    const editor = editorRef.current;
+    const sharedText = yTextRef.current;
+    const model = editor?.getModel();
+
+    if (!editor || !sharedText || !model) return;
+
+    bindingRef.current?.destroy();
+    bindingRef.current = new MonacoBinding(
+      sharedText,
+      model,
+      new Set([editor]),
+      null
+    );
+  };
+
+  const language = fileLanguages[activeFile] || "plaintext";
   const [sidebarView, setSidebarView] = useState("explorer");
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [assistantOpen, setAssistantOpen] = useState(true);
@@ -64,8 +113,23 @@ const isInitialLoad = useRef(true);
   const [runCount, setRunCount] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState("Connecting...");
 const socketRef = useRef(null);
+const yDocRef = useRef(null);
+const yTextRef = useRef(null);
+const bindingRef = useRef(null);
+
+
 useEffect(() => {
-  if (!token || !project?._id) return;
+  if (!token || !project?._id) {
+    setSaveStatus(token ? "Project not ready" : "Sign in to sync");
+    setCodeLoading(false);
+    return;
+  }
+
+  const projectId = project._id;
+  let disposed = false;
+  let doc = null;
+  let sharedText = null;
+  let applyingRemoteUpdate = false;
 
   const socket = io(
     import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, "") ||
@@ -78,160 +142,193 @@ useEffect(() => {
 
   socketRef.current = socket;
 
-  socket.on("connect", () => {
-    setConnectionStatus("Connected");
+  const encodeBase64 = (bytes) => {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+
+  const decodeBase64 = (value) => {
+    const binary = atob(value);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  };
+
+  const handleDocumentUpdate = (update, origin) => {
+    if (disposed || applyingRemoteUpdate || origin === "remote") return;
+    if (!socket.connected) {
+      setSaveStatus("Connection lost");
+      return;
+    }
+
+    const lineNumber = editorRef.current?.getPosition()?.lineNumber || 1;
+
+    setSaveStatus("Saving...");
+    setLastEditedBy(`${currentUserName} edited`);
 
     socket.emit(
-      "project:join",
-      { projectId: project._id },
+      "project:yjs-update",
+      {
+        projectId,
+        update: encodeBase64(update),
+        userName: currentUserName,
+        lineNumber,
+      },
       (result) => {
-        if (!result?.ok) {
-          setConnectionStatus(result?.message || "Join failed");
-          return;
-        }
-
-        setConnectionStatus("Connected");
+        if (disposed) return;
+        setSaveStatus(result?.ok ? "Saved" : result?.message || "Save failed");
       }
     );
+
+    showEditorBadge(currentUserName, lineNumber);
+  };
+
+  const handleTextChange = () => {
+    if (disposed || !sharedText) return;
+
+    const code = sharedText.toString();
+    latestCode.current = code;
+
+    setFiles((current) => ({
+      ...current,
+      App: current.App,
+      "App.jsx": code,
+    }));
+  };
+
+  socket.on("connect", () => {
+    if (disposed) return;
+    setConnectionStatus("Connected");
+
+    socket.emit("project:join", { projectId }, (result) => {
+      if (disposed) return;
+
+      if (!result?.ok) {
+        setConnectionStatus(result?.message || "Join failed");
+        setSaveStatus("Load failed");
+        setCodeLoading(false);
+        return;
+      }
+
+      try {
+        const newDoc = new Y.Doc();
+        Y.applyUpdate(newDoc, decodeBase64(result.yjsState));
+
+        doc = newDoc;
+        sharedText = doc.getText("code");
+
+        yDocRef.current = doc;
+        yTextRef.current = sharedText;
+
+        sharedText.observe(handleTextChange);
+        doc.on("update", handleDocumentUpdate);
+        bindEditorToSharedText();
+
+        latestCode.current = sharedText.toString();
+        setFiles((current) => ({
+          ...current,
+          "App.jsx": latestCode.current,
+        }));
+
+        setSaveStatus("Saved");
+        setCodeLoading(false);
+      } catch (error) {
+        console.error("Could not initialize Yjs document:", error);
+        setSaveStatus("Load failed");
+        setCodeLoading(false);
+      }
+    });
+  });
+
+  socket.on("project:yjs-update", ({ projectId: incomingId, update, userName, lineNumber } = {}) => {
+    if (
+      disposed ||
+      incomingId !== projectId ||
+      typeof update !== "string" ||
+      !doc
+    ) {
+      return;
+    }
+
+    try {
+      applyingRemoteUpdate = true;
+      Y.applyUpdate(doc, decodeBase64(update), "remote");
+
+      if (userName) {
+        setLastEditedBy(`${userName} edited`);
+        showEditorBadge(userName, lineNumber || 1);
+      }
+    } catch (error) {
+      console.error("Could not apply remote Yjs update:", error);
+    } finally {
+      applyingRemoteUpdate = false;
+    }
   });
 
   socket.on("connect_error", (error) => {
-    console.error("Socket connection failed:", error.message);
+    const message = error?.message || "Connection failed";
+
+    if (/invalid|expired|authentication|required/i.test(message)) {
+      localStorage.removeItem("mergemind_token");
+      setConnectionStatus("Sign in required");
+      setSaveStatus("Sign in to sync");
+      setCodeLoading(false);
+      return;
+    }
+
+    console.error("Socket connection failed:", message);
     setConnectionStatus("Connection failed");
+    setSaveStatus("Connection failed");
+    setCodeLoading(false);
   });
 
   socket.on("disconnect", () => {
     setConnectionStatus("Disconnected");
   });
-socket.on("project:code-change", ({ projectId, code }) => {
-  if (projectId !== project._id || typeof code !== "string") {
-    return;
-  }
-  // Cancel a pending HTTP save so it cannot overwrite a collaborator's edit.
-  clearTimeout(saveTimer.current);
-
-  latestCode.current = code;
-
-  setFiles((current) => ({
-    ...current,
-    [activeFile]: code,
-  }));
-
-  setSaveStatus("Saved");
-});
 
   return () => {
-    socket.emit("project:leave", { projectId: project._id });
+    disposed = true;
+
+    if (doc && sharedText) {
+      sharedText.unobserve(handleTextChange);
+      doc.off("update", handleDocumentUpdate);
+      doc.destroy();
+    }
+
+    yDocRef.current = null;
+    yTextRef.current = null;
+    bindingRef.current?.destroy();
+    bindingRef.current = null;
+
+    clearTimeout(saveTimer.current);
+    socket.emit("project:leave", { projectId });
     socket.disconnect();
-    socketRef.current = null;
+
+    if (socketRef.current === socket) {
+      socketRef.current = null;
+    }
   };
 }, [project?._id, token]);
 
-  const language = fileLanguages[activeFile] || "plaintext";
-  useEffect(() => {
-  let cancelled = false;
 
-  async function loadCode() {
-    setCodeLoading(true);
-    setSaveStatus("Loading...");
 
-    try {
-      const data = await apiRequest(
-        `/projects/${project._id}/code`,
-        {},
-        token
-      );
-
-      if (cancelled) return;
-
-      const savedCode = data.code || "";
-
-      latestCode.current = savedCode;
-      setFiles((current) => ({
-        ...current,
-        [activeFile]: savedCode,
-      }));
-
-      isInitialLoad.current = true;
-      setSaveStatus("Saved");
-    } catch (error) {
-      if (!cancelled) {
-        setSaveStatus("Load failed");
-        console.error("Could not load project code:", error);
-      }
-    } finally {
-      if (!cancelled) setCodeLoading(false);
-    }
-  }
-
-  loadCode();
-
-  return () => {
-    cancelled = true;
-    clearTimeout(saveTimer.current);
-  };
-}, [project._id, token]);
 
 
 function updateCode(value) {
-   const nextCode = value ?? "";
+  const nextCode = value ?? "";
 
   latestCode.current = nextCode;
 
   setFiles((current) => ({
     ...current,
-    [activeFile]: nextCode,
+    "App.jsx": nextCode,
   }));
 
-  setSaveStatus("Unsaved changes");
-
-  // Wait briefly so we don't send a request for every keystroke.
-  clearTimeout(saveTimer.current);
-
-  saveTimer.current = setTimeout(async () => {
-    const socket = socketRef.current;
-
-    if (socket?.connected) {
-      setSaveStatus("Saving...");
-
-      socket.emit(
-        "project:code-change",
-        {
-          projectId: project._id,
-          code: latestCode.current,
-        },
-        (result) => {
-          if (result?.ok) {
-            setSaveStatus("Saved");
-          } else {
-            setSaveStatus(result?.message || "Save failed");
-          }
-        }
-      );
-
-      return;
-    }
-
-    // If Socket.IO is disconnected, fall back to the HTTP endpoint.
-    try {
-      setSaveStatus("Saving...");
-
-      await apiRequest(
-        `/projects/${project._id}/code`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ code: latestCode.current }),
-        },
-        token
-      );
-
-      setSaveStatus("Saved");
-    } catch (error) {
-      console.error("Could not save project code:", error);
-      setSaveStatus("Save failed");
-    }
-  }, 400);
+  setSaveStatus("Saving...");
 }
+
+
 
 function handleRun() {
     setRunCount((count) => count + 1);
@@ -271,7 +368,7 @@ function handleRun() {
 
         <div className="ide-workspace-name">
           <span className="workspace-avatar">M</span>
-          <span>{project.name}</span>
+          <span>{project?.name || "Project"}</span>
         </div>
 
         <div className="ide-top-actions">
@@ -294,8 +391,8 @@ function handleRun() {
       <div className="ide-projectbar">
         <div className="ide-current-file">
           <span className="ide-live-dot" />
-          {project.name}
-          <span className="ide-save-status">{saveStatus}</span>
+          {project?.name || "Project"}
+          <span className="ide-save-status">{lastEditedBy || saveStatus}</span>
         </div>
 
         <div className="ide-session-status">
@@ -343,7 +440,7 @@ function handleRun() {
                 EXPLORER <span>•••</span>
               </div>
 
-              <div className="ide-folder-name">⌄ {project.name}</div>
+              <div className="ide-folder-name">⌄ {project?.name || "Project"}</div>
 
               {Object.keys(files).map((file) => (
                 <button
@@ -441,22 +538,29 @@ function handleRun() {
   </div>
 ) : (
   <Editor
-    key={activeFile}
-    height="100%"
-    language={language}
-    theme="vs-dark"
-    value={files[activeFile]}
-    onChange={updateCode}
-    options={{
-      minimap: { enabled: true },
-      fontSize: 14,
-      automaticLayout: true,
-      scrollBeyondLastLine: false,
-      wordWrap: "on",
-      padding: { top: 16 },
-      lineNumbers: "on",
-    }}
-  />
+  key={activeFile}
+  height="100%"
+  language={language}
+  theme="vs-dark"
+  value={files[activeFile]}
+  onChange={updateCode}
+  onMount={(editor, monaco) => {
+  editorRef.current = editor;
+  monacoRef.current = monaco;
+  bindEditorToSharedText();
+
+  showEditorBadge(currentUserName, editor.getPosition()?.lineNumber || 1);
+}}
+  options={{
+    minimap: { enabled: true },
+    fontSize: 14,
+    automaticLayout: true,
+    scrollBeyondLastLine: false,
+    wordWrap: "on",
+    padding: { top: 16 },
+    lineNumbers: "on",
+  }}
+/>
 )}
 
           </div>
