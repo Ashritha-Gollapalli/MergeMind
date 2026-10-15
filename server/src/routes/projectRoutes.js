@@ -1,4 +1,5 @@
 const express = require("express");
+const rateLimit = require("express-rate-limit");
 const { protect } = require("../middleware/authMiddleware");
 const {
   allowProjectRoles,
@@ -28,8 +29,18 @@ const {
   getProjectCode,
   saveProjectCode,
 } = require("../controllers/codeController");
+const { runProjectCode } = require("../controllers/executionController");
 
 const router = express.Router();
+const executionLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Code execution limit reached. Try again in a minute.",
+  },
+});
 
 router.use(protect);
 
@@ -63,6 +74,12 @@ router.put(
   "/:projectId/code",
   allowProjectRoles("owner", "admin", "editor"),
   saveProjectCode
+);
+router.post(
+  "/:projectId/run",
+  allowProjectRoles("owner", "admin", "editor"),
+  executionLimiter,
+  runProjectCode
 );
 router.get("/:projectId", getProjectById);
 

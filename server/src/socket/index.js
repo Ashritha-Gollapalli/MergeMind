@@ -8,6 +8,9 @@ const User = require("../models/User");
 const documents = new Map();
 const documentLoads = new Map();
 const persistenceQueues = new Map();
+const fileOperations = new Set();
+const MAX_PROJECT_FILES = 100;
+const MAX_PROJECT_FILE_BYTES = 64 * 1024;
 const DEFAULT_FILES = {
   "App.jsx": `import React from "react";
 
@@ -43,10 +46,97 @@ const FILE_STORAGE_KEYS = {
   "App.jsx": "appJsx",
   "App.css": "appCss",
   "README.md": "readmeMd",
+  "Main.py": "mainPy",
+  "Main.java": "mainJava",
+  "main.c": "mainC",
+  "main.cpp": "mainCpp",
+  "main.go": "mainGo",
+  "main.rs": "mainRs",
+  "main.js": "mainJs",
 };
+
+function isValidProjectFileName(fileName) {
+  return (
+    typeof fileName === "string" &&
+    fileName.length > 0 &&
+    Buffer.byteLength(fileName, "utf8") <= 128 &&
+    fileName !== "." &&
+    fileName !== ".." &&
+    !/[<>:"|?*]/.test(fileName) &&
+    !/[\\/]/.test(fileName) &&
+    !Array.from(fileName).some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127;
+    }) &&
+    !fileName.endsWith(".") &&
+    !fileName.endsWith(" ")
+  );
+}
+
+function getStorageKey(fileName) {
+  return (
+    FILE_STORAGE_KEYS[fileName] ||
+    `user_${Buffer.from(fileName.toLowerCase(), "utf8").toString("base64url")}`
+  );
+}
 
 function getDocumentKey(projectId, fileName) {
   return `${projectId}:${fileName}`;
+}
+
+function attachPersistenceHandler(projectId, fileName, storageKey, entry) {
+  const updateHandler = () => {
+    const key = getDocumentKey(projectId, fileName);
+    const previous = persistenceQueues.get(key) || Promise.resolve();
+    const next = previous
+      .catch(() => {})
+      .then(async () => {
+        const current = documents.get(key);
+        if (!current || current.doc !== entry.doc) return;
+
+        const state = Y.encodeStateAsUpdate(entry.doc);
+        await Project.updateOne(
+          { _id: projectId },
+          {
+            $set: {
+              [`files.${storageKey}.name`]: fileName,
+              [`files.${storageKey}.content`]: entry.doc
+                .getText("code")
+                .toString(),
+              [`files.${storageKey}.yjsState`]:
+                Buffer.from(state).toString("base64"),
+              ...(fileName === "App.jsx"
+                ? {
+                    code: entry.doc.getText("code").toString(),
+                    yjsState: Buffer.from(state).toString("base64"),
+                  }
+                : {}),
+            },
+          }
+        );
+      });
+
+    persistenceQueues.set(key, next);
+    next.catch((error) => {
+      console.error(`Yjs persistence failed for ${fileName}:`, error);
+    });
+  };
+
+  entry.updateHandler = updateHandler;
+  entry.doc.on("update", updateHandler);
+}
+
+function removeProjectDocument(projectId, fileName) {
+  const key = getDocumentKey(projectId, fileName);
+  const entry = documents.get(key);
+  if (entry) {
+    if (entry.updateHandler) {
+      entry.doc.off("update", entry.updateHandler);
+    }
+    entry.doc.destroy();
+    documents.delete(key);
+  }
+  persistenceQueues.delete(key);
 }
 
 function getRoom(projectId) {
@@ -157,7 +247,7 @@ function decodeBase64Update(value) {
 }
 
 async function loadDocument(projectId, fileName = "App.jsx") {
-  if (!Object.prototype.hasOwnProperty.call(DEFAULT_FILES, fileName)) {
+  if (!isValidProjectFileName(fileName)) {
     throw new Error("Unsupported project file.");
   }
 
@@ -186,7 +276,7 @@ async function initializeDocument(projectId, fileName, key) {
 
   if (!project) throw new Error("Project not found.");
 
-  const storageKey = FILE_STORAGE_KEYS[fileName];
+  const storageKey = getStorageKey(fileName);
   const file =
     project.files?.get(storageKey) ||
     project.files?.get(fileName);
@@ -219,7 +309,7 @@ async function initializeDocument(projectId, fileName, key) {
     }
 
     if (!initialContent) {
-      initialContent = DEFAULT_FILES[fileName];
+      initialContent = DEFAULT_FILES[fileName] || "";
     }
 
     if (initialContent) {
@@ -229,43 +319,7 @@ async function initializeDocument(projectId, fileName, key) {
 
   const entry = { doc };
   documents.set(key, entry);
-
-  doc.on("update", () => {
-    const previous = persistenceQueues.get(key) || Promise.resolve();
-
-    const next = previous
-      .catch(() => {})
-      .then(async () => {
-        const current = documents.get(key);
-
-        if (!current || current.doc !== doc) return;
-
-        const state = Y.encodeStateAsUpdate(doc);
-        const content = doc.getText("code").toString();
-        const encodedState = Buffer.from(state).toString("base64");
-
-        const setFields = {
-          [`files.${storageKey}.content`]: content,
-          [`files.${storageKey}.yjsState`]: encodedState,
-        };
-
-        if (fileName === "App.jsx") {
-          setFields.code = content;
-          setFields.yjsState = encodedState;
-        }
-
-        await Project.updateOne(
-          { _id: projectId },
-          { $set: setFields }
-        );
-      });
-
-    persistenceQueues.set(key, next);
-
-    next.catch((error) => {
-      console.error(`Yjs persistence failed for ${fileName}:`, error);
-    });
-  });
+  attachPersistenceHandler(projectId, fileName, storageKey, entry);
 
   // Persist the initial document state and any legacy content migration.
   const initialState = Y.encodeStateAsUpdate(doc);
@@ -273,6 +327,7 @@ async function initializeDocument(projectId, fileName, key) {
   const encodedInitialState = Buffer.from(initialState).toString("base64");
 
   const setFields = {
+    [`files.${storageKey}.name`]: fileName,
     [`files.${storageKey}.content`]: initialContent,
     [`files.${storageKey}.yjsState`]: encodedInitialState,
   };
@@ -343,7 +398,7 @@ function registerSocketHandlers(io) {
               user: socket.userId,
             },
           },
-        }).select("_id members");
+        }).select("_id members files");
 
         if (!project) {
           return callback?.({
@@ -360,7 +415,20 @@ function registerSocketHandlers(io) {
 
         const fileDocuments = {};
 
-        for (const fileName of Object.keys(DEFAULT_FILES)) {
+        const fileNames = new Set(Object.keys(DEFAULT_FILES));
+        const legacyNamesByStorageKey = Object.fromEntries(
+          Object.entries(FILE_STORAGE_KEYS).map(([name, key]) => [key, name])
+        );
+        for (const [storageKey, file] of project.files?.entries?.() || []) {
+          const fileName = isValidProjectFileName(file.name)
+            ? file.name
+            : legacyNamesByStorageKey[storageKey];
+          if (isValidProjectFileName(fileName)) {
+            fileNames.add(fileName);
+          }
+        }
+
+        for (const fileName of fileNames) {
           const { doc } = await loadDocument(projectId.toString(), fileName);
           const state = Y.encodeStateAsUpdate(doc);
 
@@ -400,6 +468,390 @@ function registerSocketHandlers(io) {
       }
     });
 
+    socket.on(
+      "project:create-file",
+      async ({ projectId, fileName, content = "" } = {}, callback) => {
+        try {
+          if (
+            !mongoose.isValidObjectId(projectId) ||
+            !isValidProjectFileName(fileName) ||
+            typeof content !== "string" ||
+            Buffer.byteLength(content, "utf8") > MAX_PROJECT_FILE_BYTES
+          ) {
+            return callback?.({
+              ok: false,
+              message: "Invalid file name or file exceeds the 64 KB limit.",
+            });
+          }
+
+          if (!socket.rooms.has(getRoom(projectId))) {
+            return callback?.({
+              ok: false,
+              message: "Join the project before creating files.",
+            });
+          }
+
+          const project = await Project.findOne({
+            _id: projectId,
+            members: {
+              $elemMatch: {
+                user: socket.userId,
+                role: { $in: ["owner", "admin", "editor"] },
+              },
+            },
+          }).select("_id files");
+
+          if (!project) {
+            return callback?.({
+              ok: false,
+              message: "You do not have permission to create project files.",
+            });
+          }
+
+          const existingFiles = Array.from(project.files?.values?.() || []);
+          const duplicate = [
+            ...Object.keys(DEFAULT_FILES),
+            ...existingFiles.map((file) => file.name).filter(Boolean),
+          ].some((existingName) => existingName.toLowerCase() === fileName.toLowerCase());
+          if (duplicate) {
+            return callback?.({
+              ok: false,
+              message: "A file with that name already exists.",
+            });
+          }
+
+          if (new Set([
+            ...Object.keys(DEFAULT_FILES),
+            ...existingFiles.map((file) => file.name).filter(Boolean),
+          ]).size >= MAX_PROJECT_FILES) {
+            return callback?.({
+              ok: false,
+              message: `Projects can contain up to ${MAX_PROJECT_FILES} files.`,
+            });
+          }
+
+          const storageKey = getStorageKey(fileName);
+          const doc = new Y.Doc();
+          if (content) {
+            doc.getText("code").insert(0, content);
+          }
+          const encodedState = Buffer.from(Y.encodeStateAsUpdate(doc)).toString(
+            "base64"
+          );
+          doc.destroy();
+
+          const fields = {
+            [`files.${storageKey}.name`]: fileName,
+            [`files.${storageKey}.content`]: content,
+            [`files.${storageKey}.yjsState`]: encodedState,
+          };
+          const created = await Project.updateOne(
+            {
+              _id: projectId,
+              members: {
+                $elemMatch: {
+                  user: socket.userId,
+                  role: { $in: ["owner", "admin", "editor"] },
+                },
+              },
+              [`files.${storageKey}`]: { $exists: false },
+            },
+            { $set: fields }
+          );
+
+          if (!created.modifiedCount) {
+            return callback?.({
+              ok: false,
+              message: "A file with that name already exists or access changed.",
+            });
+          }
+
+          const { doc: sharedDoc } = await loadDocument(
+            projectId.toString(),
+            fileName
+          );
+          const file = {
+            content: sharedDoc.getText("code").toString(),
+            yjsState: Buffer.from(Y.encodeStateAsUpdate(sharedDoc)).toString(
+              "base64"
+            ),
+          };
+
+          socket.to(getRoom(projectId)).emit("project:file-created", {
+            projectId: projectId.toString(),
+            fileName,
+            ...file,
+          });
+          callback?.({ ok: true, file });
+        } catch (error) {
+          console.error("Project file creation failed:", error);
+          callback?.({
+            ok: false,
+            message: "Could not create project file.",
+          });
+        }
+      }
+    );
+
+    socket.on(
+      "project:rename-file",
+      async ({ projectId, oldName, newName } = {}, callback) => {
+        let operationKey;
+        try {
+          if (
+            !mongoose.isValidObjectId(projectId) ||
+            !isValidProjectFileName(oldName) ||
+            !isValidProjectFileName(newName) ||
+            oldName.toLowerCase() === newName.toLowerCase()
+          ) {
+            return callback?.({
+              ok: false,
+              message: "Enter a valid new file name.",
+            });
+          }
+
+          if (Object.prototype.hasOwnProperty.call(DEFAULT_FILES, oldName)) {
+            return callback?.({
+              ok: false,
+              message: "Built-in workspace files cannot be renamed.",
+            });
+          }
+
+          if (!socket.rooms.has(getRoom(projectId))) {
+            return callback?.({
+              ok: false,
+              message: "Join the project before renaming files.",
+            });
+          }
+
+          const project = await Project.findOne({
+            _id: projectId,
+            members: {
+              $elemMatch: {
+                user: socket.userId,
+                role: { $in: ["owner", "admin", "editor"] },
+              },
+            },
+          }).select("_id files");
+
+          if (!project) {
+            return callback?.({
+              ok: false,
+              message: "You do not have permission to rename project files.",
+            });
+          }
+
+          const oldStorageKey = getStorageKey(oldName);
+          const newStorageKey = getStorageKey(newName);
+          const file = project.files?.get(oldStorageKey);
+          if (file?.name !== oldName) {
+            return callback?.({
+              ok: false,
+              message: "Project file does not exist.",
+            });
+          }
+
+          const duplicate = [
+            ...Object.keys(DEFAULT_FILES),
+            ...Array.from(project.files?.values?.() || [])
+              .filter((candidate) => candidate.name !== oldName)
+              .map((candidate) => candidate.name)
+              .filter(Boolean),
+          ].some((existingName) => existingName.toLowerCase() === newName.toLowerCase());
+          if (duplicate) {
+            return callback?.({
+              ok: false,
+              message: "A file with that name already exists.",
+            });
+          }
+
+          const oldDocumentKey = getDocumentKey(projectId.toString(), oldName);
+          if (fileOperations.has(oldDocumentKey)) {
+            return callback?.({
+              ok: false,
+              message: "This file is already being changed.",
+            });
+          }
+          operationKey = oldDocumentKey;
+          fileOperations.add(operationKey);
+          const oldEntry =
+            documents.get(oldDocumentKey) ||
+            (await loadDocument(projectId.toString(), oldName));
+          const pending = persistenceQueues.get(oldDocumentKey);
+          if (pending) await pending;
+
+          const content = oldEntry.doc.getText("code").toString();
+          const yjsState = Buffer.from(
+            Y.encodeStateAsUpdate(oldEntry.doc)
+          ).toString("base64");
+          const renamed = await Project.updateOne(
+            {
+              _id: projectId,
+              members: {
+                $elemMatch: {
+                  user: socket.userId,
+                  role: { $in: ["owner", "admin", "editor"] },
+                },
+              },
+              [`files.${oldStorageKey}.name`]: oldName,
+              [`files.${newStorageKey}`]: { $exists: false },
+            },
+            {
+              $set: {
+                [`files.${newStorageKey}.name`]: newName,
+                [`files.${newStorageKey}.content`]: content,
+                [`files.${newStorageKey}.yjsState`]: yjsState,
+              },
+              $unset: { [`files.${oldStorageKey}`]: 1 },
+            }
+          );
+
+          if (!renamed.modifiedCount) {
+            return callback?.({
+              ok: false,
+              message: "The file changed or a file with that name already exists.",
+            });
+          }
+
+          if (oldEntry.updateHandler) {
+            oldEntry.doc.off("update", oldEntry.updateHandler);
+          }
+          documents.delete(oldDocumentKey);
+          persistenceQueues.delete(oldDocumentKey);
+          const newDocumentKey = getDocumentKey(projectId.toString(), newName);
+          documents.set(newDocumentKey, oldEntry);
+          attachPersistenceHandler(
+            projectId.toString(),
+            newName,
+            newStorageKey,
+            oldEntry
+          );
+
+          const renamedFile = { content, yjsState };
+          socket.to(getRoom(projectId)).emit("project:file-renamed", {
+            projectId: projectId.toString(),
+            oldName,
+            newName,
+            file: renamedFile,
+          });
+          callback?.({ ok: true, file: renamedFile });
+        } catch (error) {
+          console.error("Project file rename failed:", error);
+          callback?.({
+            ok: false,
+            message: "Could not rename project file.",
+          });
+        } finally {
+          if (operationKey) fileOperations.delete(operationKey);
+        }
+      }
+    );
+
+    socket.on(
+      "project:delete-file",
+      async ({ projectId, fileName } = {}, callback) => {
+        let operationKey;
+        try {
+          if (
+            !mongoose.isValidObjectId(projectId) ||
+            !isValidProjectFileName(fileName)
+          ) {
+            return callback?.({
+              ok: false,
+              message: "Invalid project file.",
+            });
+          }
+
+          if (Object.prototype.hasOwnProperty.call(DEFAULT_FILES, fileName)) {
+            return callback?.({
+              ok: false,
+              message: "Built-in workspace files cannot be deleted.",
+            });
+          }
+
+          if (!socket.rooms.has(getRoom(projectId))) {
+            return callback?.({
+              ok: false,
+              message: "Join the project before deleting files.",
+            });
+          }
+
+          const project = await Project.findOne({
+            _id: projectId,
+            members: {
+              $elemMatch: {
+                user: socket.userId,
+                role: { $in: ["owner", "admin", "editor"] },
+              },
+            },
+          }).select("_id files");
+
+          if (!project) {
+            return callback?.({
+              ok: false,
+              message: "You do not have permission to delete project files.",
+            });
+          }
+
+          const storageKey = getStorageKey(fileName);
+          if (project.files?.get(storageKey)?.name !== fileName) {
+            return callback?.({
+              ok: false,
+              message: "Project file does not exist.",
+            });
+          }
+
+          const documentKey = getDocumentKey(projectId.toString(), fileName);
+          if (fileOperations.has(documentKey)) {
+            return callback?.({
+              ok: false,
+              message: "This file is already being changed.",
+            });
+          }
+          operationKey = documentKey;
+          fileOperations.add(operationKey);
+          const pending = persistenceQueues.get(documentKey);
+          if (pending) await pending;
+
+          const deleted = await Project.updateOne(
+            {
+              _id: projectId,
+              members: {
+                $elemMatch: {
+                  user: socket.userId,
+                  role: { $in: ["owner", "admin", "editor"] },
+                },
+              },
+              [`files.${storageKey}.name`]: fileName,
+            },
+            { $unset: { [`files.${storageKey}`]: 1 } }
+          );
+
+          if (!deleted.modifiedCount) {
+            return callback?.({
+              ok: false,
+              message: "The file changed or no longer exists.",
+            });
+          }
+
+          removeProjectDocument(projectId.toString(), fileName);
+          socket.to(getRoom(projectId)).emit("project:file-deleted", {
+            projectId: projectId.toString(),
+            fileName,
+          });
+          callback?.({ ok: true });
+        } catch (error) {
+          console.error("Project file deletion failed:", error);
+          callback?.({
+            ok: false,
+            message: "Could not delete project file.",
+          });
+        } finally {
+          if (operationKey) fileOperations.delete(operationKey);
+        }
+      }
+    );
+
     socket.on("disconnecting", () => {
       const projectIds = Array.from(socket.rooms)
         .filter((room) => room.startsWith("project:"))
@@ -421,7 +873,7 @@ function registerSocketHandlers(io) {
         try {
           if (
             !mongoose.isValidObjectId(projectId) ||
-            !Object.prototype.hasOwnProperty.call(DEFAULT_FILES, fileName) ||
+            !isValidProjectFileName(fileName) ||
             typeof update !== "string" ||
             update.length > 3 * 1024 * 1024
           ) {
@@ -446,12 +898,31 @@ function registerSocketHandlers(io) {
                 role: { $in: ["owner", "admin", "editor"] },
               },
             },
-          }).select("_id");
+          }).select("_id files");
 
           if (!project) {
             return callback?.({
               ok: false,
               message: "You do not have permission to edit this project.",
+            });
+          }
+
+          const storageKey = getStorageKey(fileName);
+          const file = project.files?.get(storageKey);
+          if (
+            !Object.prototype.hasOwnProperty.call(DEFAULT_FILES, fileName) &&
+            file?.name !== fileName
+          ) {
+            return callback?.({
+              ok: false,
+              message: "Project file does not exist.",
+            });
+          }
+          const documentKey = getDocumentKey(projectId.toString(), fileName);
+          if (fileOperations.has(documentKey)) {
+            return callback?.({
+              ok: false,
+              message: "This file is currently being renamed or deleted.",
             });
           }
 
@@ -465,6 +936,12 @@ function registerSocketHandlers(io) {
           }
 
           const { doc } = await loadDocument(projectId.toString(), fileName);
+          if (fileOperations.has(documentKey)) {
+            return callback?.({
+              ok: false,
+              message: "This file is currently being renamed or deleted.",
+            });
+          }
 
           Y.applyUpdate(doc, bytes, socket.id);
 

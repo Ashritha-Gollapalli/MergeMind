@@ -1,0 +1,46 @@
+# MergeMind server
+
+## Isolated code execution
+
+The Run button executes the selected source file: `App.jsx` is rendered as a
+React preview, while `Main.py`, `Main.java`, `main.c`, `main.cpp`, `main.go`,
+`main.rs`, and `main.js` run as Python, Java, C, C++, Go, Rust, and Node.js
+programs. Console programs can read the optional standard input provided in
+the terminal panel. The React preview supports React imports only; it does not
+run browser APIs or interactive effects.
+
+Project editors can create files or upload UTF-8 text files up to 64 KB from
+the Explorer. File contents are saved in the project's Yjs-backed file map and
+synchronized with connected collaborators. User-created files can be renamed or
+deleted from the Explorer actions menu; those changes synchronize with open
+collaborators. Built-in workspace files cannot be renamed or deleted. Editor
+tabs can be closed without deleting their files, and the Explorer can download
+a copy of the currently open file. Projects support up to 100 files; uploads
+must use a new filename and cannot create folders.
+
+Each run uses a short-lived Docker container with no network, source and input
+streamed over standard input, a non-root user, a read-only root filesystem,
+dropped Linux capabilities, and a 32-process limit. Memory, CPU, temporary
+storage, and runtime are capped per language to allow for compilation. Output
+is limited to 64 KB; source is limited to 64 KB and standard input to 32 KB.
+The API is limited to 10 runs per minute per client IP, and only project
+owners, admins, and editors may run code.
+
+Install and start Docker Desktop or Docker Engine, then pull the runner images
+before running programs. Images are not pulled during execution, so a missing
+image returns an explicit error instead of delaying or timing out a run.
+
+```powershell
+docker pull node:22-alpine
+docker pull python:3.13-alpine
+docker pull eclipse-temurin:21-jdk-alpine
+docker pull gcc:14
+docker pull golang:1.25-alpine
+docker pull rust:1.89-alpine
+```
+
+If Docker is unavailable or an image cannot be pulled, the Run endpoint
+returns an explicit service error. React output is displayed in a sandboxed,
+script-disabled iframe with a restrictive Content Security Policy. Containers
+have no network access, so programs cannot download packages or connect to
+external services.

@@ -20,6 +20,10 @@ const projectMemberSchema = new mongoose.Schema(
 
 const projectFileSchema = new mongoose.Schema(
   {
+    name: {
+      type: String,
+      default: "",
+    },
     content: {
       type: String,
       default: "",
