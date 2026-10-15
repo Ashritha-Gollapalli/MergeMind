@@ -3,6 +3,20 @@ import { apiRequest } from "./api";
 import CodeEditor from "./components/CodeEditor";
 import "./App.css";
 
+function canEditProject(project, userId) {
+  return Boolean(
+    project?.members?.some((member) => {
+      const memberId =
+        typeof member.user === "string" ? member.user : member.user?._id;
+
+      return (
+        String(memberId) === String(userId) &&
+        ["owner", "admin", "editor"].includes(member.role)
+      );
+    })
+  );
+}
+
 function App() {
   const [token, setToken] = useState(() =>
     localStorage.getItem("mergemind_token")
@@ -292,6 +306,7 @@ async function handleRemoveMember(userId) {
   project={selectedProject}
   token={token}
   user={user}
+  readOnly={!canEditProject(selectedProject, user?.id)}
   onBack={() => setShowCodeEditor(false)}
 />
   ) : (
