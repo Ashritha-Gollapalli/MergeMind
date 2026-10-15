@@ -1,5 +1,9 @@
 const mongoose = require("mongoose");
 const Project = require("../models/Project");
+const {
+  emitProjectMembers,
+  updateProjectMemberAccess,
+} = require("../socket");
 
 async function updateMemberRole(req, res, next) {
   try {
@@ -48,6 +52,10 @@ async function updateMemberRole(req, res, next) {
 
     member.role = role;
     await project.save();
+
+    const io = req.app.get("io");
+    await updateProjectMemberAccess(io, project._id, userId, role);
+    await emitProjectMembers(io, project._id);
 
     return res.status(200).json({
       message: "Member role updated successfully",

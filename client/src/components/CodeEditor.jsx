@@ -45,6 +45,10 @@ const fileLanguages = {
 
 function CodeEditor({ project, token, user, readOnly = false, onBack }) {
   const [files, setFiles] = useState(initialFiles);
+  const [editorReadOnly, setEditorReadOnly] = useState(readOnly);
+  const [projectMembers, setProjectMembers] = useState(project?.members || []);
+  const [onlineCollaborators, setOnlineCollaborators] = useState([]);
+  const [accessRevoked, setAccessRevoked] = useState(false);
 
   const hasCollaborationContext = Boolean(token && project?._id);
   const [codeLoading, setCodeLoading] = useState(hasCollaborationContext);
@@ -288,12 +292,25 @@ useEffect(() => {
       if (disposed) return;
 
       if (!result?.ok) {
-        setConnectionStatus(result?.message || "Join failed");
-        setSaveStatus("Load failed");
+        const message = result?.message || "Join failed";
+        if (/access|permission|member/i.test(message)) {
+          setAccessRevoked(true);
+          setEditorReadOnly(true);
+          setOnlineCollaborators([]);
+          setConnectionStatus("Access revoked");
+          setSaveStatus("Project access was removed");
+        } else {
+          setConnectionStatus(message);
+          setSaveStatus("Load failed");
+        }
         setCodeLoading(false);
         initializingDocs = false;
         return;
       }
+      setAccessRevoked(false);
+      setEditorReadOnly(
+        !["owner", "admin", "editor"].includes(result.role)
+      );
       setConnectionStatus("Connected");
 
       const nextDocs = {};
@@ -436,11 +453,50 @@ useEffect(() => {
     applyRemoteUpdate({ fileName, update, userName, lineNumber });
   });
 
+  socket.on("project:presence", ({ projectId: incomingId, collaborators } = {}) => {
+    if (
+      !disposed &&
+      String(incomingId) === projectId &&
+      Array.isArray(collaborators)
+    ) {
+      setOnlineCollaborators(collaborators);
+    }
+  });
+
+  socket.on("project:members", ({ projectId: incomingId, members } = {}) => {
+    if (
+      !disposed &&
+      String(incomingId) === projectId &&
+      Array.isArray(members)
+    ) {
+      setProjectMembers(members);
+    }
+  });
+
+  socket.on("project:role-updated", ({ projectId: incomingId, role } = {}) => {
+    if (disposed || String(incomingId) !== projectId) return;
+
+    const canEdit = ["owner", "admin", "editor"].includes(role);
+    setEditorReadOnly(!canEdit);
+    setSaveStatus(canEdit ? "Edit access updated" : "View-only access");
+  });
+
+  socket.on("project:access-revoked", ({ projectId: incomingId } = {}) => {
+    if (disposed || String(incomingId) !== projectId) return;
+
+    setAccessRevoked(true);
+    setEditorReadOnly(true);
+    setConnectionStatus("Access revoked");
+    setSaveStatus("Project access was removed");
+    setOnlineCollaborators([]);
+  });
+
   socket.on("connect_error", (error) => {
     const message = error?.message || "Connection failed";
 
     if (/invalid|expired|authentication|required/i.test(message)) {
       localStorage.removeItem("mergemind_token");
+      setEditorReadOnly(true);
       setConnectionStatus("Sign in required");
       setSaveStatus("Sign in to sync");
       setCodeLoading(false);
@@ -490,29 +546,14 @@ useEffect(() => {
 
 
 function updateCode(value) {
-  if (readOnly) return;
+  if (editorReadOnly || accessRevoked) return;
 
-  const nextCode = value ?? "";
-  const sharedDoc = yDocsRef.current[activeFile];
-  const sharedText = sharedDoc?.getText("code");
-
-  if (sharedDoc && sharedText && sharedText.toString() !== nextCode) {
-    sharedDoc.transact(() => {
-      if (sharedText.length > 0) {
-        sharedText.delete(0, sharedText.length);
-      }
-      if (nextCode.length > 0) {
-        sharedText.insert(0, nextCode);
-      }
-    });
-  }
+  if (yDocsRef.current[activeFile]) return;
 
   setFiles((current) => ({
     ...current,
-    [activeFile]: nextCode,
+    [activeFile]: value ?? "",
   }));
-
-  setSaveStatus("Saving...");
 }
 
 
@@ -579,10 +620,21 @@ function handleRun() {
         <div className="ide-current-file">
           <span className="ide-live-dot" />
           {project?.name || "Project"}
-          <span className="ide-save-status">{lastEditedBy || saveStatus}</span>
+          <span className="ide-save-status">{saveStatus}</span>
+          {lastEditedBy && (
+            <span className="ide-last-edited">{lastEditedBy}</span>
+          )}
         </div>
 
-        <div className="ide-session-status">
+        <div
+          className={`ide-session-status ${
+            connectionStatus === "Connected"
+              ? "is-connected"
+              : /connecting|joining/i.test(connectionStatus)
+                ? "is-connecting"
+                : "is-disconnected"
+          }`}
+        >
           <span className="ide-live-dot" />
           {connectionStatus}
         </div>
@@ -676,13 +728,61 @@ function handleRun() {
 
           {sidebarView === "members" && (
             <>
-              <div className="ide-pane-title">COLLABORATORS</div>
-              <p className="ide-sidebar-message">
-                Open the project details page to manage project members.
-              </p>
-              <button className="ide-sidebar-button" onClick={onBack}>
-                View project members
-              </button>
+              <div className="ide-pane-title">
+                COLLABORATORS
+                <span>{onlineCollaborators.length} online</span>
+              </div>
+              <div className="ide-member-list">
+                {projectMembers.map((member) => {
+                  const memberUser = member.user;
+                  const memberId = String(
+                    member.userId ||
+                      (typeof memberUser === "string"
+                        ? memberUser
+                        : memberUser?._id || memberUser?.id) ||
+                      ""
+                  );
+                  const name =
+                    member.name ||
+                    memberUser?.name ||
+                    member.email ||
+                    memberUser?.email ||
+                    "Collaborator";
+                  const isOnline = onlineCollaborators.some(
+                    (collaborator) =>
+                      String(collaborator.userId) === memberId
+                  );
+
+                  return (
+                    <div className="ide-member" key={memberId || name}>
+                      <span className="ide-member-avatar">
+                        {name.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="ide-member-details">
+                        <strong>
+                          {name}
+                          {memberId === String(user?.id || user?._id) &&
+                            " (you)"}
+                        </strong>
+                        <span>{member.role || "viewer"}</span>
+                      </span>
+                      <span
+                        className={`ide-member-presence ${
+                          isOnline ? "is-online" : ""
+                        }`}
+                        title={isOnline ? "Online" : "Offline"}
+                      >
+                        {isOnline ? "Online" : "Offline"}
+                      </span>
+                    </div>
+                  );
+                })}
+                {!projectMembers.length && (
+                  <p className="ide-sidebar-message">
+                    No project members are available.
+                  </p>
+                )}
+              </div>
             </>
           )}
         </aside>
@@ -728,7 +828,7 @@ function handleRun() {
   height="100%"
   language={language}
   theme="vs-dark"
-  value={files[activeFile]}
+  defaultValue={files[activeFile]}
   onChange={updateCode}
   onMount={(editor, monaco) => {
   editorRef.current = editor;
@@ -746,7 +846,7 @@ function handleRun() {
     padding: { top: 16 },
     lineNumbers: "on",
     glyphMargin: true,
-    readOnly,
+    readOnly: editorReadOnly,
   }}
 />
 )}

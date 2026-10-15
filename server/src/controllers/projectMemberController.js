@@ -1,6 +1,10 @@
 const mongoose = require("mongoose");
 const User = require("../models/User");
 const Project = require("../models/Project");
+const {
+  emitProjectMembers,
+  updateProjectMemberAccess,
+} = require("../socket");
 
 async function addProjectMember(req, res, next) {
   try {
@@ -18,6 +22,12 @@ async function addProjectMember(req, res, next) {
     if (!allowedRoles.includes(role)) {
       return res.status(400).json({
         message: "Role must be admin, editor, or viewer",
+      });
+    }
+
+    if (req.projectMembership.role === "admin" && role === "admin") {
+      return res.status(403).json({
+        message: "Only the project owner can assign the admin role",
       });
     }
 
@@ -54,6 +64,8 @@ async function addProjectMember(req, res, next) {
     });
 
     await project.save();
+
+    await emitProjectMembers(req.app.get("io"), projectId);
 
     return res.status(201).json({
       message: "Member added successfully",
@@ -103,6 +115,10 @@ async function removeProjectMember(req, res, next) {
     );
 
     await project.save();
+
+    const io = req.app.get("io");
+    await updateProjectMemberAccess(io, projectId, userId, null);
+    await emitProjectMembers(io, projectId);
 
     return res.status(200).json({
       message: "Member removed successfully",

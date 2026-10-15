@@ -53,6 +53,93 @@ function getRoom(projectId) {
   return `project:${projectId}`;
 }
 
+async function getRoomCollaborators(io, projectId, excludedSocketId) {
+  const room = getRoom(projectId);
+  const sockets = await io.in(room).fetchSockets();
+  const collaborators = new Map();
+
+  sockets
+    .filter((socket) => socket.id !== excludedSocketId)
+    .forEach((socket) => {
+      const userId = socket.data?.userId || socket.userId;
+
+      if (userId && !collaborators.has(userId)) {
+        collaborators.set(userId, {
+          userId,
+          userName: socket.data?.userName || socket.userName || "Collaborator",
+        });
+      }
+    });
+
+  return Array.from(collaborators.values());
+}
+
+async function emitProjectPresence(io, projectId, excludedSocketId) {
+  const collaborators = await getRoomCollaborators(
+    io,
+    projectId,
+    excludedSocketId
+  );
+
+  io.to(getRoom(projectId)).emit("project:presence", {
+    projectId: projectId.toString(),
+    collaborators,
+  });
+}
+
+async function emitProjectMembers(io, projectId) {
+  const project = await Project.findById(projectId).populate(
+    "members.user",
+    "name email"
+  );
+
+  if (!project) return;
+
+  const members = project.members.map((member) => {
+    const memberUser = member.user;
+
+    return {
+      userId: (memberUser?._id || memberUser).toString(),
+      name: memberUser?.name || memberUser?.email || "Collaborator",
+      email: memberUser?.email || "",
+      role: member.role,
+    };
+  });
+
+  io.to(getRoom(projectId)).emit("project:members", {
+    projectId: projectId.toString(),
+    members,
+  });
+}
+
+async function updateProjectMemberAccess(io, projectId, userId, role) {
+  const room = getRoom(projectId);
+  const sockets = await io.in(room).fetchSockets();
+  const matchingSockets = sockets.filter(
+    (socket) =>
+      (socket.data?.userId || socket.userId) === userId.toString()
+  );
+
+  if (role === null) {
+    for (const socket of matchingSockets) {
+      socket.emit("project:access-revoked", {
+        projectId: projectId.toString(),
+      });
+      await socket.leave(room);
+    }
+
+    await emitProjectPresence(io, projectId);
+    return;
+  }
+
+  matchingSockets.forEach((socket) => {
+    socket.emit("project:role-updated", {
+      projectId: projectId.toString(),
+      role,
+    });
+  });
+}
+
 function decodeBase64Update(value) {
   if (
     typeof value !== "string" ||
@@ -218,15 +305,18 @@ function registerSocketHandlers(io) {
       }
 
       socket.userId = userId.toString();
+      socket.data.userId = socket.userId;
 
       User.findById(userId)
         .select("name email")
         .then((user) => {
           socket.userName = user?.name || user?.email || "Collaborator";
+          socket.data.userName = socket.userName;
           next();
         })
         .catch(() => {
           socket.userName = "Collaborator";
+          socket.data.userName = socket.userName;
           next();
         });
     } catch {
@@ -236,6 +326,8 @@ function registerSocketHandlers(io) {
 
   io.on("connection", (socket) => {
     socket.on("project:join", async ({ projectId } = {}, callback) => {
+      let joinedRoom = false;
+
       try {
         if (!mongoose.isValidObjectId(projectId)) {
           return callback?.({
@@ -251,7 +343,7 @@ function registerSocketHandlers(io) {
               user: socket.userId,
             },
           },
-        }).select("_id");
+        }).select("_id members");
 
         if (!project) {
           return callback?.({
@@ -261,6 +353,10 @@ function registerSocketHandlers(io) {
         }
 
         await socket.join(getRoom(projectId));
+        joinedRoom = true;
+        const membership = project.members.find(
+          (member) => member.user.toString() === socket.userId
+        );
 
         const fileDocuments = {};
 
@@ -274,13 +370,19 @@ function registerSocketHandlers(io) {
           };
         }
 
+        await emitProjectPresence(io, projectId);
         callback?.({
           ok: true,
           projectId: projectId.toString(),
+          role: membership.role,
           files: fileDocuments,
           yjsState: fileDocuments["App.jsx"].yjsState,
         });
       } catch (error) {
+        if (joinedRoom) {
+          await socket.leave(getRoom(projectId));
+          await emitProjectPresence(io, projectId);
+        }
         console.error("Socket project join failed:", error);
         callback?.({
           ok: false,
@@ -292,7 +394,22 @@ function registerSocketHandlers(io) {
     socket.on("project:leave", ({ projectId } = {}) => {
       if (mongoose.isValidObjectId(projectId)) {
         socket.leave(getRoom(projectId));
+        emitProjectPresence(io, projectId).catch((error) => {
+          console.error("Could not update project presence:", error);
+        });
       }
+    });
+
+    socket.on("disconnecting", () => {
+      const projectIds = Array.from(socket.rooms)
+        .filter((room) => room.startsWith("project:"))
+        .map((room) => room.slice("project:".length));
+
+      projectIds.forEach((projectId) => {
+        emitProjectPresence(io, projectId, socket.id).catch((error) => {
+          console.error("Could not update project presence:", error);
+        });
+      });
     });
 
     socket.on(
@@ -452,4 +569,8 @@ function registerSocketHandlers(io) {
   });
 }
 
-module.exports = { registerSocketHandlers };
+module.exports = {
+  emitProjectMembers,
+  registerSocketHandlers,
+  updateProjectMemberAccess,
+};
