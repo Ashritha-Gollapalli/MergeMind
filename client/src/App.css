@@ -1085,6 +1085,11 @@ textarea {
   font-weight: 700;
 }
 
+.ide-run-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .ide-projectbar {
   display: flex;
   align-items: center;
@@ -1186,28 +1191,130 @@ textarea {
   letter-spacing: 1px;
 }
 
+.ide-explorer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 10px 0 14px;
+  color: #9ba2b7;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.ide-explorer-heading > div {
+  display: flex;
+  gap: 4px;
+}
+
+.ide-explorer-heading button,
+.ide-new-file-form button {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  border: 1px solid #35394e;
+  border-radius: 5px;
+  background: #191d2d;
+  color: #c7b8ff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ide-explorer-heading button {
+  font-size: 16px;
+}
+
+.ide-explorer-heading button:disabled,
+.ide-new-file-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ide-new-file-form {
+  display: flex;
+  gap: 5px;
+  padding: 0 9px 8px;
+}
+
+.ide-new-file-form input {
+  width: 0;
+  min-width: 0;
+  flex: 1;
+  padding: 6px 7px;
+  border: 1px solid #35394e;
+  border-radius: 5px;
+  outline: none;
+  background: #0d0f18;
+  color: #e5e7f0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.ide-new-file-form input:focus {
+  border-color: #8b75e8;
+}
+
+.ide-new-file-form button {
+  padding: 0 7px;
+  font-size: 10px;
+}
+
+.ide-upload-input {
+  display: none;
+}
+
+.ide-file-action-message {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: #bcaeff;
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .ide-folder-name {
   padding: 8px 14px;
   color: #c6cadd;
   font-weight: 600;
 }
 
+.ide-file-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding-left: 18px;
+  color: #b8bfd2;
+}
+
+.ide-file-row:hover,
+.ide-file-row.active {
+  background: #27243f;
+  color: #f4f1ff;
+}
+
 .ide-file {
   display: flex;
   align-items: center;
+  flex: 1;
   gap: 10px;
+  min-width: 0;
   min-height: 36px;
-  padding: 0 12px 0 28px;
+  padding: 0 3px 0 10px;
   border: 0;
   background: transparent;
-  color: #b8bfd2;
+  color: inherit;
   text-align: left;
+  cursor: pointer;
 }
 
-.ide-file:hover,
-.ide-file.active {
-  background: #27243f;
-  color: #f4f1ff;
+.ide-file-name,
+.ide-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ide-file-icon {
@@ -1219,12 +1326,124 @@ textarea {
   font-weight: 800;
 }
 
+.ide-file-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-right: 5px;
+}
+
+.ide-file-menu-button {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #b9bfd0;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.ide-file-menu-button:hover,
+.ide-file-menu-button[aria-expanded="true"] {
+  background: #38364d;
+  color: #fff;
+}
+
+.ide-file-menu-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ide-file-menu {
+  position: absolute;
+  z-index: 5;
+  top: 27px;
+  right: 5px;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  padding: 4px;
+  border: 1px solid #393d52;
+  border-radius: 6px;
+  background: #1b1f2e;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.ide-file-menu button {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #d6daea;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ide-file-menu button:hover {
+  background: #30354a;
+}
+
+.ide-file-menu button.is-danger {
+  color: #ff9a9a;
+}
+
+.ide-file-rename-form {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+}
+
+.ide-file-rename-form input {
+  width: 0;
+  min-width: 0;
+  flex: 1;
+  padding: 5px 6px;
+  border: 1px solid #8b75e8;
+  border-radius: 4px;
+  outline: none;
+  background: #0d0f18;
+  color: #f0edff;
+  font: inherit;
+  font-size: 11px;
+}
+
+.ide-file-rename-form button {
+  border: 0;
+  border-radius: 4px;
+  background: #34384d;
+  color: #d9dcef;
+  cursor: pointer;
+}
+
 .ide-explorer-note,
 .ide-sidebar-message {
   padding: 16px;
   color: #858da4;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.ide-save-file-button {
+  margin: 8px 10px 0;
+  padding: 8px;
+  border: 1px solid #35394e;
+  border-radius: 6px;
+  background: #191d2d;
+  color: #c7b8ff;
+  font-size: 10px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.ide-save-file-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .ide-sidebar-button {
@@ -1234,6 +1453,48 @@ textarea {
   border-radius: 8px;
   background: #191d2d;
   color: #d9dcef;
+}
+
+.ide-search-input {
+  margin: 0 12px 10px;
+  padding: 8px 9px;
+  border: 1px solid #35394e;
+  border-radius: 6px;
+  background: #0d0f18;
+  color: #e5e7f0;
+}
+
+.ide-search-results {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.ide-search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: #aeb5c9;
+  text-align: left;
+}
+
+.ide-search-result:hover {
+  background: #202438;
+}
+
+.ide-search-result strong {
+  color: #c5b4ff;
+  font-size: 10px;
+}
+
+.ide-search-result span {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ide-member-list {
@@ -1306,6 +1567,7 @@ textarea {
 
 .ide-tabs {
   display: flex;
+  align-items: stretch;
   min-height: 42px;
   overflow-x: auto;
   border-bottom: 1px solid #252838;
@@ -1315,10 +1577,8 @@ textarea {
 .ide-tab {
   display: flex;
   align-items: center;
-  gap: 9px;
   min-width: 112px;
-  padding: 0 13px;
-  border: 0;
+  max-width: 220px;
   border-right: 1px solid #252838;
   border-bottom: 2px solid transparent;
   background: transparent;
@@ -1331,12 +1591,74 @@ textarea {
   color: #f0edff;
 }
 
-.ide-tab-dot {
-  width: 6px;
-  height: 6px;
+.ide-tab-select {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 9px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 13px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ide-tab-close,
+.ide-close-all-tabs {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  width: 22px;
+  height: 22px;
+  margin: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #aeb4c7;
+  font-size: 17px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ide-tab:hover .ide-tab-close,
+.ide-tab.active .ide-tab-close,
+.ide-tab-close:focus-visible,
+.ide-close-all-tabs:hover,
+.ide-close-all-tabs:focus-visible {
+  opacity: 1;
+}
+
+.ide-tab-close:hover,
+.ide-close-all-tabs:hover {
+  background: #38364d;
+  color: #fff;
+}
+
+.ide-close-all-tabs {
+  align-self: center;
   margin-left: auto;
-  border-radius: 50%;
-  background: #a78bfa;
+  margin-right: 10px;
+  opacity: 1;
+}
+
+.ide-no-open-files {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  color: #9ba2b7;
+  font-size: 12px;
+}
+
+.ide-no-open-files strong {
+  color: #d7dbeb;
 }
 
 .ide-editor-heading {
@@ -1364,8 +1686,9 @@ textarea {
 
 .ide-terminal {
   display: flex;
-  flex: 0 0 155px;
+  flex: 0 0 210px;
   flex-direction: column;
+  min-height: 120px;
   border-top: 1px solid #303449;
   background: #0b0e16;
 }
@@ -1394,9 +1717,62 @@ textarea {
 }
 
 .ide-terminal-content {
+  flex: 1;
+  overflow: auto;
   padding: 16px;
   color: #c1c8da;
   line-height: 1.7;
+}
+
+.ide-stdin-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  color: #929ab0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+}
+
+.ide-stdin-input textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid #303449;
+  border-radius: 5px;
+  background: #111523;
+  color: #e1e4f1;
+  font: 12px/1.5 Consolas, "Courier New", monospace;
+  letter-spacing: normal;
+}
+
+.ide-stdin-input textarea::placeholder {
+  color: #737b91;
+}
+
+.ide-execution-output,
+.ide-execution-errors {
+  margin: 8px 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 Consolas, "Courier New", monospace;
+}
+
+.ide-execution-errors {
+  color: #ff9292;
+}
+
+.ide-execution-preview {
+  display: block;
+  width: 100%;
+  height: 150px;
+  margin-top: 10px;
+  border: 1px solid #303449;
+  border-radius: 4px;
+  background: white;
 }
 
 .terminal-prompt {
