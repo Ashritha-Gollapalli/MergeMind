@@ -43,18 +43,25 @@ const fileLanguages = {
   "README.md": "markdown",
 };
 
-function CodeEditor({ project, token, user, onBack }) {
+function CodeEditor({ project, token, user, readOnly = false, onBack }) {
   const [files, setFiles] = useState(initialFiles);
 
-  const [codeLoading, setCodeLoading] = useState(true);
-  const [saveStatus, setSaveStatus] = useState("Local preview");
+  const hasCollaborationContext = Boolean(token && project?._id);
+  const [codeLoading, setCodeLoading] = useState(hasCollaborationContext);
+  const [saveStatus, setSaveStatus] = useState(
+    hasCollaborationContext
+      ? "Loading..."
+      : token
+        ? "Project not ready"
+        : "Local preview"
+  );
   const [lastEditedBy, setLastEditedBy] = useState("");
-  const saveTimer = useRef(null);
-  const latestCode = useRef("");
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const currentUserName = user?.name || user?.email || "You";
   const [activeFile, setActiveFile] = useState("App.jsx");
+  const activeFileRef = useRef(activeFile);
+  const [docVersion, setDocVersion] = useState(0);
 
   const showEditorBadge = (name, lineNumber = 1) => {
     const editor = editorRef.current;
@@ -88,7 +95,7 @@ function CodeEditor({ project, token, user, onBack }) {
 
   const bindEditorToSharedText = () => {
     const editor = editorRef.current;
-    const sharedText = yTextRef.current;
+    const sharedText = yDocsRef.current[activeFileRef.current]?.getText("code");
     const model = editor?.getModel();
 
     if (!editor || !sharedText || !model) return;
@@ -111,25 +118,36 @@ function CodeEditor({ project, token, user, onBack }) {
     "MergeMind workspace ready."
   );
   const [runCount, setRunCount] = useState(0);
-  const [connectionStatus, setConnectionStatus] = useState("Connecting...");
+  const [connectionStatus, setConnectionStatus] = useState(
+    hasCollaborationContext ? "Connecting..." : "Local preview"
+  );
 const socketRef = useRef(null);
-const yDocRef = useRef(null);
-const yTextRef = useRef(null);
+const yDocsRef = useRef({});
 const bindingRef = useRef(null);
+
+useEffect(() => {
+  activeFileRef.current = activeFile;
+}, [activeFile]);
+
+useEffect(() => {
+  bindEditorToSharedText();
+
+  return () => {
+    bindingRef.current?.destroy();
+    bindingRef.current = null;
+  };
+}, [activeFile, docVersion]);
 
 
 useEffect(() => {
-  if (!token || !project?._id) {
-    setSaveStatus(token ? "Project not ready" : "Sign in to sync");
-    setCodeLoading(false);
-    return;
-  }
+  if (!token || !project?._id) return;
 
-  const projectId = project._id;
+  const projectId = String(project._id);
   let disposed = false;
-  let doc = null;
-  let sharedText = null;
-  let applyingRemoteUpdate = false;
+  let docs = {};
+  let initializingDocs = false;
+  const pendingRemoteUpdates = [];
+  const observingRemoteUpdates = new Set();
 
   const socket = io(
     import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, "") ||
@@ -141,6 +159,17 @@ useEffect(() => {
   );
 
   socketRef.current = socket;
+  const handleReconnectAttempt = () => {
+    setConnectionStatus("Reconnecting...");
+    setSaveStatus("Reconnecting...");
+  };
+  const handleReconnectFailed = () => {
+    setConnectionStatus("Reconnect failed");
+    setSaveStatus("Connection lost");
+  };
+
+  socket.io.on("reconnect_attempt", handleReconnectAttempt);
+  socket.io.on("reconnect_failed", handleReconnectFailed);
 
   const encodeBase64 = (bytes) => {
     let binary = "";
@@ -155,51 +184,105 @@ useEffect(() => {
     return Uint8Array.from(binary, (char) => char.charCodeAt(0));
   };
 
-  const handleDocumentUpdate = (update, origin) => {
-    if (disposed || applyingRemoteUpdate || origin === "remote") return;
+  const handleDocumentUpdate = (fileName, update, origin) => {
+    if (
+      disposed ||
+      observingRemoteUpdates.has(fileName) ||
+      origin === "remote"
+    ) {
+      return;
+    }
+
     if (!socket.connected) {
       setSaveStatus("Connection lost");
       return;
     }
 
-    const lineNumber = editorRef.current?.getPosition()?.lineNumber || 1;
+    sendDocumentUpdate(fileName, update);
+  };
+
+  const sendDocumentUpdate = (fileName, update) => {
+    const lineNumber =
+      fileName === activeFileRef.current
+        ? editorRef.current?.getPosition()?.lineNumber || 1
+        : 1;
 
     setSaveStatus("Saving...");
     setLastEditedBy(`${currentUserName} edited`);
 
-    socket.emit(
-      "project:yjs-update",
-      {
-        projectId,
-        update: encodeBase64(update),
-        userName: currentUserName,
-        lineNumber,
-      },
-      (result) => {
-        if (disposed) return;
-        setSaveStatus(result?.ok ? "Saved" : result?.message || "Save failed");
-      }
-    );
+    if (fileName === activeFileRef.current) {
+      showEditorBadge(currentUserName, lineNumber);
+    }
 
-    showEditorBadge(currentUserName, lineNumber);
+    return new Promise((resolve) =>
+      socket.timeout(10000).emit(
+        "project:yjs-update",
+        {
+          projectId,
+          fileName,
+          update: encodeBase64(update),
+          lineNumber,
+        },
+        (error, result) => {
+          if (disposed) {
+            resolve(false);
+            return;
+          }
+          if (!error && result?.ok) {
+            setSaveStatus("Saved");
+            resolve(true);
+          } else {
+            setLastEditedBy("");
+            setSaveStatus(
+              result?.message || error?.message || "Save failed"
+            );
+            resolve(false);
+          }
+        }
+      )
+    );
   };
 
-  const handleTextChange = () => {
-    if (disposed || !sharedText) return;
+  const applyRemoteUpdate = ({
+    fileName = "App.jsx",
+    update,
+    userName,
+    lineNumber,
+  }) => {
+    const entry = docs[fileName];
 
-    const code = sharedText.toString();
-    latestCode.current = code;
+    if (!entry || typeof update !== "string") {
+      pendingRemoteUpdates.push({
+        fileName,
+        update,
+        userName,
+        lineNumber,
+      });
+      return;
+    }
 
-    setFiles((current) => ({
-      ...current,
-      App: current.App,
-      "App.jsx": code,
-    }));
+    try {
+      observingRemoteUpdates.add(fileName);
+      Y.applyUpdate(entry.doc, decodeBase64(update), "remote");
+
+      if (userName) {
+        setLastEditedBy(`${userName} edited`);
+        if (fileName === activeFileRef.current) {
+          showEditorBadge(userName, lineNumber || 1);
+        }
+      }
+    } catch (error) {
+      console.error("Could not apply remote Yjs update:", error);
+    } finally {
+      observingRemoteUpdates.delete(fileName);
+    }
   };
 
   socket.on("connect", () => {
     if (disposed) return;
-    setConnectionStatus("Connected");
+    setConnectionStatus("Joining project...");
+    initializingDocs = true;
+    pendingRemoteUpdates.length = 0;
 
     socket.emit("project:join", { projectId }, (result) => {
       if (disposed) return;
@@ -208,32 +291,120 @@ useEffect(() => {
         setConnectionStatus(result?.message || "Join failed");
         setSaveStatus("Load failed");
         setCodeLoading(false);
+        initializingDocs = false;
         return;
       }
+      setConnectionStatus("Connected");
+
+      const nextDocs = {};
 
       try {
-        const newDoc = new Y.Doc();
-        Y.applyUpdate(newDoc, decodeBase64(result.yjsState));
+        const reconciliationRequests = [];
 
-        doc = newDoc;
-        sharedText = doc.getText("code");
+        for (const [fileName, defaultContent] of Object.entries(initialFiles)) {
+          const file = result.files?.[fileName];
+          const previousEntry = docs[fileName];
+          const doc = previousEntry?.doc || new Y.Doc();
+          nextDocs[fileName] = previousEntry || { doc };
 
-        yDocRef.current = doc;
-        yTextRef.current = sharedText;
+          let serverState;
+          if (file?.yjsState) {
+            serverState = decodeBase64(file.yjsState);
+          } else if (fileName === "App.jsx" && result.yjsState) {
+            serverState = decodeBase64(result.yjsState);
+          } else {
+            const initialContent =
+              typeof file?.content === "string"
+                ? file.content
+                : defaultContent;
 
-        sharedText.observe(handleTextChange);
-        doc.on("update", handleDocumentUpdate);
-        bindEditorToSharedText();
+            if (initialContent) {
+              if (doc.getText("code").length === 0) {
+                doc.getText("code").insert(0, initialContent);
+              }
+            }
+          }
 
-        latestCode.current = sharedText.toString();
-        setFiles((current) => ({
-          ...current,
-          "App.jsx": latestCode.current,
-        }));
+          const serverStateVector = serverState
+            ? Y.encodeStateVectorFromUpdate(serverState)
+            : new Uint8Array([0]);
+          if (serverState) {
+            observingRemoteUpdates.add(fileName);
+            try {
+              Y.applyUpdate(doc, serverState, "remote");
+            } finally {
+              observingRemoteUpdates.delete(fileName);
+            }
+          }
 
-        setSaveStatus("Saved");
+          const sharedText = doc.getText("code");
+          if (!previousEntry) {
+            const updateHandler = (update, origin) =>
+              handleDocumentUpdate(fileName, update, origin);
+            const textHandler = () => {
+              if (disposed) return;
+              setFiles((current) => ({
+                ...current,
+                [fileName]: sharedText.toString(),
+              }));
+            };
+
+            doc.on("update", updateHandler);
+            sharedText.observe(textHandler);
+            nextDocs[fileName] = {
+              doc,
+              sharedText,
+              updateHandler,
+              textHandler,
+            };
+          }
+
+          const unsyncedUpdate = Y.encodeStateAsUpdate(doc, serverStateVector);
+          if (unsyncedUpdate.length > 2) {
+            reconciliationRequests.push(
+              sendDocumentUpdate(fileName, unsyncedUpdate)
+            );
+          }
+
+        }
+
+        docs = nextDocs;
+        yDocsRef.current = Object.fromEntries(
+          Object.entries(docs).map(([fileName, entry]) => [
+            fileName,
+            entry.doc,
+          ])
+        );
+        initializingDocs = false;
+        pendingRemoteUpdates.splice(0).forEach(applyRemoteUpdate);
+        setDocVersion((version) => version + 1);
+        setFiles(
+          Object.fromEntries(
+            Object.entries(docs).map(([fileName, entry]) => [
+              fileName,
+              entry.sharedText.toString(),
+            ])
+          )
+        );
+
+        if (reconciliationRequests.length > 0) {
+          setSaveStatus("Syncing local edits...");
+          Promise.all(reconciliationRequests).then((results) => {
+            if (disposed) return;
+            setSaveStatus(
+              results.every(Boolean) ? "Saved" : "Some edits failed to sync"
+            );
+          });
+        } else {
+          setSaveStatus("Saved");
+        }
         setCodeLoading(false);
       } catch (error) {
+        Object.values(nextDocs).forEach(({ doc }) => doc.destroy());
+        docs = {};
+        yDocsRef.current = {};
+        pendingRemoteUpdates.length = 0;
+        initializingDocs = false;
         console.error("Could not initialize Yjs document:", error);
         setSaveStatus("Load failed");
         setCodeLoading(false);
@@ -241,29 +412,28 @@ useEffect(() => {
     });
   });
 
-  socket.on("project:yjs-update", ({ projectId: incomingId, update, userName, lineNumber } = {}) => {
+  socket.on("project:yjs-update", ({
+    projectId: incomingId,
+    fileName = "App.jsx",
+    update,
+    userName,
+    lineNumber,
+  } = {}) => {
     if (
       disposed ||
-      incomingId !== projectId ||
+      String(incomingId) !== projectId ||
       typeof update !== "string" ||
-      !doc
+      !Object.prototype.hasOwnProperty.call(initialFiles, fileName)
     ) {
       return;
     }
 
-    try {
-      applyingRemoteUpdate = true;
-      Y.applyUpdate(doc, decodeBase64(update), "remote");
-
-      if (userName) {
-        setLastEditedBy(`${userName} edited`);
-        showEditorBadge(userName, lineNumber || 1);
-      }
-    } catch (error) {
-      console.error("Could not apply remote Yjs update:", error);
-    } finally {
-      applyingRemoteUpdate = false;
+    if (initializingDocs || !docs[fileName]) {
+      pendingRemoteUpdates.push({ fileName, update, userName, lineNumber });
+      return;
     }
+
+    applyRemoteUpdate({ fileName, update, userName, lineNumber });
   });
 
   socket.on("connect_error", (error) => {
@@ -285,44 +455,61 @@ useEffect(() => {
 
   socket.on("disconnect", () => {
     setConnectionStatus("Disconnected");
+    setSaveStatus("Connection lost");
   });
 
   return () => {
     disposed = true;
 
-    if (doc && sharedText) {
-      sharedText.unobserve(handleTextChange);
-      doc.off("update", handleDocumentUpdate);
-      doc.destroy();
-    }
+    Object.values(docs).forEach(
+      ({ doc, sharedText, updateHandler, textHandler }) => {
+        sharedText.unobserve(textHandler);
+        doc.off("update", updateHandler);
+        doc.destroy();
+      }
+    );
 
-    yDocRef.current = null;
-    yTextRef.current = null;
+    docs = {};
+    yDocsRef.current = {};
     bindingRef.current?.destroy();
     bindingRef.current = null;
 
-    clearTimeout(saveTimer.current);
     socket.emit("project:leave", { projectId });
     socket.disconnect();
+    socket.io.off("reconnect_attempt", handleReconnectAttempt);
+    socket.io.off("reconnect_failed", handleReconnectFailed);
 
     if (socketRef.current === socket) {
       socketRef.current = null;
     }
   };
-}, [project?._id, token]);
+}, [currentUserName, project?._id, token]);
 
 
 
 
 
 function updateCode(value) {
-  const nextCode = value ?? "";
+  if (readOnly) return;
 
-  latestCode.current = nextCode;
+  const nextCode = value ?? "";
+  const sharedDoc = yDocsRef.current[activeFile];
+  const sharedText = sharedDoc?.getText("code");
+
+  if (sharedDoc && sharedText && sharedText.toString() !== nextCode) {
+    sharedDoc.transact(() => {
+      if (sharedText.length > 0) {
+        sharedText.delete(0, sharedText.length);
+      }
+      if (nextCode.length > 0) {
+        sharedText.insert(0, nextCode);
+      }
+    });
+  }
 
   setFiles((current) => ({
     ...current,
-    "App.jsx": nextCode,
+    [activeFile]: nextCode,
   }));
 
   setSaveStatus("Saving...");
@@ -397,7 +584,7 @@ function handleRun() {
 
         <div className="ide-session-status">
           <span className="ide-live-dot" />
-          Local session
+          {connectionStatus}
         </div>
       </div>
 
@@ -462,8 +649,7 @@ function handleRun() {
               ))}
 
               <div className="ide-explorer-note">
-                Starter files are local previews. Project file storage will
-                be connected separately.
+                Each file syncs and saves independently.
               </div>
             </>
           )}
@@ -559,6 +745,8 @@ function handleRun() {
     wordWrap: "on",
     padding: { top: 16 },
     lineNumbers: "on",
+    glyphMargin: true,
+    readOnly,
   }}
 />
 )}

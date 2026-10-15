@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const projectMemberSchema = new mongoose.Schema(
@@ -12,6 +13,20 @@ const projectMemberSchema = new mongoose.Schema(
       enum: ["owner", "admin", "editor", "viewer"],
       default: "viewer",
       required: true,
+    },
+  },
+  { _id: false }
+);
+
+const projectFileSchema = new mongoose.Schema(
+  {
+    content: {
+      type: String,
+      default: "",
+    },
+    yjsState: {
+      type: String,
+      default: "",
     },
   },
   { _id: false }
@@ -42,13 +57,18 @@ const projectSchema = new mongoose.Schema(
       default: [],
     },
     code: {
-  type: String,
-  default: "",
-},
-yjsState: {
-  type: String,
-  default: "",
-},
+      type: String,
+      default: "",
+    },
+    yjsState: {
+      type: String,
+      default: "",
+    },
+    files: {
+      type: Map,
+      of: projectFileSchema,
+      default: () => new Map(),
+    },
   },
   { timestamps: true }
 );
