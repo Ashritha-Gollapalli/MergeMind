@@ -1875,6 +1875,38 @@ textarea {
   line-height: 1.7;
 }
 
+.assistant-conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.assistant-message {
+  padding: 10px;
+  border: 1px solid #292e41;
+  border-radius: 8px;
+  background: #151a29;
+}
+
+.assistant-message-user {
+  background: #1d1a32;
+}
+
+.assistant-message strong {
+  color: #d8d1f5;
+  font-size: 11px;
+}
+
+.assistant-message p {
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.assistant-message.is-error p {
+  color: #ffaaa7;
+}
+
 .assistant-suggestions {
   display: flex;
   flex-wrap: wrap;
@@ -1915,6 +1947,12 @@ textarea {
   border-radius: 7px;
   background: #7957ef;
   color: white;
+}
+
+.ide-assistant-input button:disabled,
+.ide-assistant-input textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .ide-assistant-disclaimer {
