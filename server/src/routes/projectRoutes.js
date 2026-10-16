@@ -30,6 +30,7 @@ const {
   saveProjectCode,
 } = require("../controllers/codeController");
 const { runProjectCode } = require("../controllers/executionController");
+const { askAssistant } = require("../controllers/aiAssistantController");
 
 const router = express.Router();
 const executionLimiter = rateLimit({
@@ -39,6 +40,15 @@ const executionLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     message: "Code execution limit reached. Try again in a minute.",
+  },
+});
+const assistantLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "AI assistant limit reached. Try again in a minute.",
   },
 });
 
@@ -80,6 +90,12 @@ router.post(
   allowProjectRoles("owner", "admin", "editor"),
   executionLimiter,
   runProjectCode
+);
+router.post(
+  "/:projectId/assistant",
+  allowProjectRoles("owner", "admin", "editor", "viewer"),
+  assistantLimiter,
+  askAssistant
 );
 router.get("/:projectId", getProjectById);
 

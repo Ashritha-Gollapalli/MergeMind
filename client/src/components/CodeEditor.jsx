@@ -211,6 +211,8 @@ function CodeEditor({ project, token, user, readOnly = false, onBack }) {
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [assistantOpen, setAssistantOpen] = useState(true);
   const [assistantMessage, setAssistantMessage] = useState("");
+  const [assistantMessages, setAssistantMessages] = useState([]);
+  const [assistantLoading, setAssistantLoading] = useState(false);
   const [terminalMessage, setTerminalMessage] = useState(
     "MergeMind workspace ready."
   );
@@ -1179,16 +1181,87 @@ function saveActiveFile() {
   setFileActionMessage(`${activeFile} downloaded.`);
 }
 
-  function sendAssistantMessage(event) {
+  async function sendAssistantMessage(event) {
     event.preventDefault();
 
-    if (!assistantMessage.trim()) return;
+    const prompt = assistantMessage.trim();
+    if (!prompt || assistantLoading) return;
 
-    setTerminalMessage(
-      `AI integration is not connected yet. Your prompt: ${assistantMessage.trim()}`
-    );
-    setTerminalOpen(true);
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    const selection = editor?.getSelection();
+    const selectedCode =
+      model && selection ? model.getValueInRange(selection).trim() : "";
+    const code = selectedCode || files[activeFile] || "";
+    const requestId = `${Date.now()}-${Math.random()}`;
+    setAssistantMessages((messages) => [
+      ...messages,
+      { id: requestId, role: "user", content: prompt },
+      { id: `${requestId}-pending`, role: "assistant", content: "Thinking..." },
+    ]);
     setAssistantMessage("");
+
+    if (!project?._id || !token) {
+      setAssistantMessages((messages) =>
+        messages.map((message) =>
+          message.id === `${requestId}-pending`
+            ? {
+                ...message,
+                content: "Open a project and sign in to use the AI assistant.",
+                isError: true,
+              }
+            : message
+        )
+      );
+      return;
+    }
+
+    setAssistantLoading(true);
+    try {
+      const data = await apiRequest(
+        `/projects/${project._id}/assistant`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            prompt,
+            fileName: activeFile || "No file selected",
+            language,
+            code,
+            history: assistantMessages
+              .filter(
+                (message) =>
+                  !message.isError && message.content !== "Thinking..."
+              )
+              .slice(-10)
+              .map(({ role, content }) => ({ role, content })),
+          }),
+        },
+        token
+      );
+
+      setAssistantMessages((messages) =>
+        messages.map((message) =>
+          message.id === `${requestId}-pending`
+            ? { ...message, content: data.answer }
+            : message
+        )
+      );
+    } catch (error) {
+      setAssistantMessages((messages) =>
+        messages.map((message) =>
+          message.id === `${requestId}-pending`
+            ? {
+                ...message,
+                content:
+                  error.message || "The AI request failed. Please try again.",
+                isError: true,
+              }
+            : message
+        )
+      );
+    } finally {
+      setAssistantLoading(false);
+    }
   }
 
   return (
@@ -1742,29 +1815,53 @@ function saveActiveFile() {
             </div>
 
             <div className="ide-assistant-content">
-              <span className="assistant-icon">✦</span>
-              <strong>Welcome to MergeMind</strong>
-              <p>
-                Your coding workspace is ready. Edit files from the explorer
-                and use the terminal panel to view workspace status.
-              </p>
+              {assistantMessages.length === 0 ? (
+                <>
+                  <span className="assistant-icon">✦</span>
+                  <strong>Welcome to MergeMind</strong>
+                  <p>
+                    Ask a question about the current file. Select code in the
+                    editor to focus the assistant on that selection.
+                  </p>
 
-              <div className="assistant-suggestions">
-                <button
-                  onClick={() =>
-                    setAssistantMessage("Explain the current file")
-                  }
-                >
-                  Explain code
-                </button>
-                <button
-                  onClick={() =>
-                    setAssistantMessage("Help me find bugs")
-                  }
-                >
-                  Find bugs
-                </button>
-              </div>
+                  <div className="assistant-suggestions">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAssistantMessage("Explain the current file")
+                      }
+                    >
+                      Explain code
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAssistantMessage(
+                          "Review this code for bugs and suggest fixes"
+                        )
+                      }
+                    >
+                      Find bugs
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="assistant-conversation" aria-live="polite">
+                  {assistantMessages.map((message) => (
+                    <div
+                      className={`assistant-message assistant-message-${message.role}${
+                        message.isError ? " is-error" : ""
+                      }`}
+                      key={message.id}
+                    >
+                      <strong>
+                        {message.role === "user" ? "You" : "AI Assistant"}
+                      </strong>
+                      <p>{message.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <form
@@ -1778,11 +1875,18 @@ function saveActiveFile() {
                 }
                 placeholder="Ask about your code..."
                 rows={3}
+                maxLength={4000}
+                disabled={assistantLoading}
               />
-              <button type="submit">Send ↗</button>
+              <button
+                type="submit"
+                disabled={assistantLoading || !assistantMessage.trim()}
+              >
+                {assistantLoading ? "Thinking..." : "Send ↗"}
+              </button>
             </form>
             <p className="ide-assistant-disclaimer">
-              AI responses require a connected AI service.
+              Your prompt and code context are sent to the configured AI provider.
             </p>
           </aside>
         )}
