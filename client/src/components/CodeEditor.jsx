@@ -290,9 +290,22 @@ useEffect(() => {
     setConnectionStatus("Reconnect failed");
     setSaveStatus("Connection lost");
   };
+  const handleBrowserOffline = () => {
+    setConnectionStatus("Offline");
+    setSaveStatus("Offline edits will sync when reconnected");
+  };
+  const handleBrowserOnline = () => {
+    if (!socket.connected) {
+      setConnectionStatus("Reconnecting...");
+      setSaveStatus("Syncing when reconnected");
+    }
+  };
 
   socket.io.on("reconnect_attempt", handleReconnectAttempt);
   socket.io.on("reconnect_failed", handleReconnectFailed);
+  window.addEventListener("offline", handleBrowserOffline);
+  window.addEventListener("online", handleBrowserOnline);
+  if (!window.navigator.onLine) handleBrowserOffline();
 
   const encodeBase64 = (bytes) => {
     let binary = "";
@@ -700,7 +713,9 @@ useEffect(() => {
       disposed ||
       String(incomingId) !== projectId ||
       typeof update !== "string" ||
-      !Object.prototype.hasOwnProperty.call(initialFiles, fileName)
+      typeof fileName !== "string" ||
+      (!initializingDocs &&
+        !Object.prototype.hasOwnProperty.call(docs, fileName))
     ) {
       return;
     }
@@ -754,6 +769,12 @@ useEffect(() => {
   socket.on("connect_error", (error) => {
     const message = error?.message || "Connection failed";
 
+    if (!window.navigator.onLine) {
+      handleBrowserOffline();
+      setCodeLoading(false);
+      return;
+    }
+
     if (/invalid|expired|authentication|required/i.test(message)) {
       localStorage.removeItem("mergemind_token");
       setEditorReadOnly(true);
@@ -770,8 +791,12 @@ useEffect(() => {
   });
 
   socket.on("disconnect", () => {
-    setConnectionStatus("Disconnected");
-    setSaveStatus("Connection lost");
+    if (!window.navigator.onLine) {
+      handleBrowserOffline();
+    } else {
+      setConnectionStatus("Disconnected");
+      setSaveStatus("Connection lost");
+    }
   });
 
   return () => {
@@ -797,6 +822,8 @@ useEffect(() => {
     socket.disconnect();
     socket.io.off("reconnect_attempt", handleReconnectAttempt);
     socket.io.off("reconnect_failed", handleReconnectFailed);
+    window.removeEventListener("offline", handleBrowserOffline);
+    window.removeEventListener("online", handleBrowserOnline);
 
     if (socketRef.current === socket) {
       socketRef.current = null;
