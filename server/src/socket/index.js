@@ -143,6 +143,31 @@ function getRoom(projectId) {
   return `project:${projectId}`;
 }
 
+function getAudioRoom(projectId) {
+  return `audio:${projectId}`;
+}
+
+function getEventPayload(payload) {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload
+    : {};
+}
+
+function getAudioParticipant(socket, projectId) {
+  const status = socket.data.audioStatusByProject?.[projectId] || {
+    muted: true,
+    speaking: false,
+  };
+
+  return {
+    socketId: socket.id,
+    userId: socket.data.userId,
+    userName: socket.data.userName || "Collaborator",
+    muted: status.muted,
+    speaking: status.speaking,
+  };
+}
+
 async function getRoomCollaborators(io, projectId, excludedSocketId) {
   const room = getRoom(projectId);
   const sockets = await io.in(room).fetchSockets();
@@ -215,6 +240,14 @@ async function updateProjectMemberAccess(io, projectId, userId, role) {
       socket.emit("project:access-revoked", {
         projectId: projectId.toString(),
       });
+      const audioRoom = getAudioRoom(projectId);
+      if (socket.rooms.has(audioRoom)) {
+        socket.to(audioRoom).emit("audio:participant-left", {
+          projectId: projectId.toString(),
+          socketId: socket.id,
+        });
+        await socket.leave(audioRoom);
+      }
       await socket.leave(room);
     }
 
@@ -365,14 +398,17 @@ function registerSocketHandlers(io) {
       User.findById(userId)
         .select("name email")
         .then((user) => {
-          socket.userName = user?.name || user?.email || "Collaborator";
+          if (!user) {
+            return next(new Error("User account no longer exists."));
+          }
+
+          socket.userName = user.name || user.email || "Collaborator";
           socket.data.userName = socket.userName;
           next();
         })
-        .catch(() => {
-          socket.userName = "Collaborator";
-          socket.data.userName = socket.userName;
-          next();
+        .catch((error) => {
+          console.error("Socket authentication lookup failed:", error);
+          next(new Error("Authentication failed."));
         });
     } catch {
       next(new Error("Invalid or expired authentication token."));
@@ -461,12 +497,185 @@ function registerSocketHandlers(io) {
 
     socket.on("project:leave", ({ projectId } = {}) => {
       if (mongoose.isValidObjectId(projectId)) {
+        const audioRoom = getAudioRoom(projectId);
+        if (socket.rooms.has(audioRoom)) {
+          socket.to(audioRoom).emit("audio:participant-left", {
+            projectId: projectId.toString(),
+            socketId: socket.id,
+          });
+          socket.leave(audioRoom);
+          delete socket.data.audioStatusByProject?.[projectId];
+        }
         socket.leave(getRoom(projectId));
         emitProjectPresence(io, projectId).catch((error) => {
           console.error("Could not update project presence:", error);
         });
       }
     });
+
+    socket.on("audio:join", async (payload, callback) => {
+      try {
+        const { projectId } = getEventPayload(payload);
+        if (!mongoose.isValidObjectId(projectId)) {
+          return callback?.({ ok: false, message: "Invalid project ID." });
+        }
+
+        const normalizedProjectId = projectId.toString();
+        const project = await Project.findOne({
+          _id: normalizedProjectId,
+          members: { $elemMatch: { user: socket.userId } },
+        }).select("_id");
+
+        if (!project) {
+          return callback?.({
+            ok: false,
+            message: "You do not have access to this project.",
+          });
+        }
+
+        const audioRoom = getAudioRoom(normalizedProjectId);
+        const wasJoined = socket.rooms.has(audioRoom);
+        await socket.join(getRoom(normalizedProjectId));
+        await socket.join(audioRoom);
+        socket.data.audioStatusByProject ||= {};
+        socket.data.audioStatusByProject[normalizedProjectId] = {
+          muted: true,
+          speaking: false,
+        };
+
+        const joinedSockets = await io.in(audioRoom).fetchSockets();
+        const participants = joinedSockets
+          .filter((participant) => participant.id !== socket.id)
+          .map((participant) =>
+            getAudioParticipant(participant, normalizedProjectId)
+          );
+
+        if (!wasJoined) {
+          socket.to(audioRoom).emit("audio:participant-joined", {
+            projectId: normalizedProjectId,
+            participant: getAudioParticipant(socket, normalizedProjectId),
+          });
+        }
+
+        callback?.({
+          ok: true,
+          projectId: normalizedProjectId,
+          participants,
+        });
+      } catch (error) {
+        console.error("Audio room join failed:", error);
+        callback?.({
+          ok: false,
+          message: "Could not join project audio.",
+        });
+      }
+    });
+
+    socket.on("audio:leave", async (payload, callback) => {
+      const { projectId } = getEventPayload(payload);
+      if (
+        !mongoose.isValidObjectId(projectId) ||
+        !socket.rooms.has(getAudioRoom(projectId))
+      ) {
+        return callback?.({ ok: false, message: "You are not in this audio room." });
+      }
+
+      const normalizedProjectId = projectId.toString();
+      const audioRoom = getAudioRoom(normalizedProjectId);
+      socket.to(audioRoom).emit("audio:participant-left", {
+        projectId: normalizedProjectId,
+        socketId: socket.id,
+      });
+      await socket.leave(audioRoom);
+      await socket.leave(getRoom(normalizedProjectId));
+      delete socket.data.audioStatusByProject?.[normalizedProjectId];
+      callback?.({ ok: true });
+    });
+
+    socket.on(
+      "audio:state",
+      (payload, callback) => {
+        const { projectId, muted, speaking } = getEventPayload(payload);
+        if (
+          !mongoose.isValidObjectId(projectId) ||
+          !socket.rooms.has(getAudioRoom(projectId)) ||
+          typeof muted !== "boolean" ||
+          typeof speaking !== "boolean"
+        ) {
+          return callback?.({ ok: false, message: "Invalid audio status." });
+        }
+
+        const normalizedProjectId = projectId.toString();
+        const status = { muted, speaking: muted ? false : speaking };
+        socket.data.audioStatusByProject ||= {};
+        socket.data.audioStatusByProject[normalizedProjectId] = status;
+        socket.to(getAudioRoom(normalizedProjectId)).emit(
+          "audio:participant-state",
+          {
+            projectId: normalizedProjectId,
+            socketId: socket.id,
+            ...status,
+          }
+        );
+        callback?.({ ok: true });
+      }
+    );
+
+    const relayAudioSignal = (eventName, payloadName, isCandidate = false) => {
+      socket.on(
+        eventName,
+        async (message, callback) => {
+          const { projectId, to } = getEventPayload(message);
+          const payload = getEventPayload(message)[payloadName];
+          if (
+            !mongoose.isValidObjectId(projectId) ||
+            typeof to !== "string" ||
+            to.length > 128 ||
+            !socket.rooms.has(getAudioRoom(projectId))
+          ) {
+            return callback?.({ ok: false, message: "Invalid audio signal." });
+          }
+
+          const validPayload = isCandidate
+            ? payload === null ||
+              (payload &&
+                typeof payload === "object" &&
+                typeof payload.candidate === "string" &&
+                payload.candidate.length <= 4096)
+            : payload &&
+              typeof payload === "object" &&
+              ["offer", "answer"].includes(payload.type) &&
+              typeof payload.sdp === "string" &&
+              payload.sdp.length <= 65536;
+
+          if (!validPayload) {
+            return callback?.({ ok: false, message: "Invalid audio signal." });
+          }
+
+          const normalizedProjectId = projectId.toString();
+          const audioRoom = getAudioRoom(normalizedProjectId);
+          const roomSockets = await io.in(audioRoom).fetchSockets();
+          if (!roomSockets.some((participant) => participant.id === to)) {
+            return callback?.({
+              ok: false,
+              message: "Audio participant is not in this project room.",
+            });
+          }
+
+          socket.to(to).emit(eventName, {
+            projectId: normalizedProjectId,
+            fromSocketId: socket.id,
+            participant: getAudioParticipant(socket, normalizedProjectId),
+            [payloadName]: payload,
+          });
+          callback?.({ ok: true });
+        }
+      );
+    };
+
+    relayAudioSignal("audio:offer", "description");
+    relayAudioSignal("audio:answer", "description");
+    relayAudioSignal("audio:ice-candidate", "candidate", true);
 
     socket.on(
       "project:create-file",
@@ -858,6 +1067,13 @@ function registerSocketHandlers(io) {
         .map((room) => room.slice("project:".length));
 
       projectIds.forEach((projectId) => {
+        const audioRoom = getAudioRoom(projectId);
+        if (socket.rooms.has(audioRoom)) {
+          socket.to(audioRoom).emit("audio:participant-left", {
+            projectId,
+            socketId: socket.id,
+          });
+        }
         emitProjectPresence(io, projectId, socket.id).catch((error) => {
           console.error("Could not update project presence:", error);
         });

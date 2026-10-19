@@ -14,6 +14,7 @@ import { useAuthStore } from "../store/authStore";
 
 import FileExplorer from "../components/FileExplorer";
 import CodeEditor from "../components/CodeEditor";
+import AudioRoom from "../components/AudioRoom";
 import Collaborators from "../components/Collaborators";
 import RoleBadge from "../components/RoleBadge";
 
@@ -189,6 +190,12 @@ export default function Workspace() {
             <span className="online-dot" />
             Collaboration workspace
           </div>
+
+          <AudioRoom
+            key={projectId}
+            projectId={projectId}
+            userName={user?.username || user?.name || "You"}
+          />
 
           <button
             className="secondary-button"
