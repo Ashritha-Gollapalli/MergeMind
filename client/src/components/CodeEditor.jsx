@@ -5,6 +5,7 @@ import { io } from "socket.io-client";
 import * as Y from "yjs";
 import { MonacoBinding } from "y-monaco";
 import { apiRequest } from "../api";
+import AudioRoom from "./AudioRoom";
 
 const initialFiles = {
   "App.jsx": `import React from "react";
@@ -1287,6 +1288,14 @@ function saveActiveFile() {
 
         <div className="ide-top-actions">
           <span className="ide-branch">Git unavailable</span>
+          {token && project?._id && !accessRevoked && (
+            <AudioRoom
+              key={project._id}
+              projectId={project._id}
+              userName={currentUserName}
+              token={token}
+            />
+          )}
           <button
             className="ide-action-button"
             onClick={() => {

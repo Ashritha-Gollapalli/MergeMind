@@ -464,6 +464,118 @@ a:hover {
   min-width: 0;
 }
 
+.audio-room {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.audio-control-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #343044;
+  border-radius: 7px;
+  background: #171521;
+  color: #e8e4f5;
+  white-space: nowrap;
+}
+
+.audio-control-button:hover:not(:disabled) {
+  background: #242033;
+}
+
+.audio-join-button {
+  border-color: #57429a;
+  background: #292044;
+  color: #d9ccff;
+}
+
+.audio-leave-button {
+  border-color: #67373f;
+  background: #321d25;
+  color: #ffb8bf;
+}
+
+.audio-roster-anchor {
+  position: relative;
+}
+
+.audio-roster {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 245px;
+  padding: 12px;
+  border: 1px solid #343044;
+  border-radius: 9px;
+  background: #15131e;
+  box-shadow: 0 12px 32px #0008;
+  color: #e8e4f5;
+}
+
+.audio-roster > strong {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 12px;
+}
+
+.audio-participant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: #b9b5c8;
+  font-size: 12px;
+}
+
+.audio-participant > span:nth-child(2) {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-speaking-indicator {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #727080;
+}
+
+.audio-speaking-indicator.is-speaking {
+  background: #46d6a0;
+  box-shadow: 0 0 0 3px #46d6a033;
+}
+
+.audio-remote-playback {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.audio-error {
+  position: absolute;
+  z-index: 51;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(300px, 80vw);
+  padding: 9px 11px;
+  border: 1px solid #77424c;
+  border-radius: 7px;
+  background: #321d25;
+  color: #ffc4ca;
+  font-size: 11px;
+}
+
 .ide-brand-name {
   font-weight: 700;
 }
@@ -858,6 +970,15 @@ a:hover {
   .ide-actions button {
     padding: 8px;
     font-size: 11px;
+  }
+
+  .audio-room {
+    gap: 3px;
+  }
+
+  .audio-control-button {
+    gap: 4px;
+    padding: 0 6px;
   }
 
   .editor-status {

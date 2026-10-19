@@ -1,5 +1,7 @@
 require("dotenv").config();
 
+const fs = require("fs");
+const https = require("https");
 const http = require("http");
 const { Server } = require("socket.io");
 const app = require("./app");
@@ -8,7 +10,28 @@ const { registerSocketHandlers } = require("./socket");
 
 const PORT = Number(process.env.PORT) || 5000;
 
-const httpServer = http.createServer(app);
+function createHttpServer() {
+  const keyPath = process.env.HTTPS_KEY_PATH;
+  const certPath = process.env.HTTPS_CERT_PATH;
+
+  if (Boolean(keyPath) !== Boolean(certPath)) {
+    throw new Error("HTTPS_KEY_PATH and HTTPS_CERT_PATH must be configured together.");
+  }
+
+  if (keyPath && certPath) {
+    return https.createServer(
+      {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      },
+      app
+    );
+  }
+
+  return http.createServer(app);
+}
+
+const httpServer = createHttpServer();
 
 const io = new Server(httpServer, {
   cors: {
