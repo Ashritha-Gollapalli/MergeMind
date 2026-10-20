@@ -6,6 +6,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const app = require("./app");
 const connectDB = require("./config/db");
+const { getClientOrigins } = require("./config/clientOrigins");
 const { registerSocketHandlers } = require("./socket");
 
 const PORT = Number(process.env.PORT) || 5000;
@@ -35,7 +36,7 @@ const httpServer = createHttpServer();
 
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: getClientOrigins(),
     methods: ["GET", "POST"],
   },
 });

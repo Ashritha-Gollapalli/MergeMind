@@ -5,6 +5,7 @@ import { io } from "socket.io-client";
 import * as Y from "yjs";
 import { MonacoBinding } from "y-monaco";
 import { apiRequest } from "../api";
+import { getSocketUrl } from "../config/urls";
 import AudioRoom from "./AudioRoom";
 
 const initialFiles = {
@@ -275,14 +276,10 @@ useEffect(() => {
   const pendingCreatedFiles = [];
   const observingRemoteUpdates = new Set();
 
-  const socket = io(
-    import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, "") ||
-      "http://localhost:5000",
-    {
-      auth: { token },
-      transports: ["websocket", "polling"],
-    }
-  );
+  const socket = io(getSocketUrl(), {
+    auth: { token },
+    transports: ["websocket", "polling"],
+  });
 
   socketRef.current = socket;
   const handleReconnectAttempt = () => {
