@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+import { getApiUrl } from "./config/urls";
 
 export async function apiRequest(path, options = {}, token = null) {
   const headers = {
@@ -10,7 +10,7 @@ export async function apiRequest(path, options = {}, token = null) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${getApiUrl()}${path}`, {
     ...options,
     headers,
   });

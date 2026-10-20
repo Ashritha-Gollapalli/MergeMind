@@ -7,16 +7,7 @@ import {
   Users,
 } from "lucide-react";
 import { io } from "socket.io-client";
-
-function getSocketUrl() {
-  return (
-    import.meta.env.VITE_SOCKET_URL ||
-    (import.meta.env.VITE_API_URL || "http://localhost:5000/api").replace(
-      /\/api\/?$/,
-      ""
-    )
-  );
-}
+import { getSocketUrl } from "../config/urls";
 
 function getIceServers() {
   const stunUrls = (

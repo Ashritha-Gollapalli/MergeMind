@@ -54,6 +54,28 @@ development). The server can terminate HTTPS directly when both
 `HTTPS_KEY_PATH` and `HTTPS_CERT_PATH` point to a readable TLS key and
 certificate; otherwise, deploy behind a TLS-terminating reverse proxy.
 
+### Two-device testing
+
+Both computers must open the same deployed frontend, connect to the same
+reachable backend, and use the same MongoDB database. A `localhost` API URL
+always points to the computer running that browser, not to your friend's
+computer. If the API is on a different origin from the frontend, set
+`VITE_API_URL` to the backend's shared URL before building the client; otherwise
+the production client uses the frontend's own origin. Socket.IO uses the API
+host unless `VITE_SOCKET_URL` is set separately. The frontend origin must be
+included in the server's comma-separated `CLIENT_URL` allowlist.
+Restart/rebuild after changing either setting.
+
+For remote microphone use, serve the frontend and API over HTTPS. Browsers
+block microphone access from a plain HTTP LAN address even when the API and
+Socket.IO are reachable. STUN can establish some direct connections, but
+different networks and NATs often require a TURN service; configure the
+`VITE_TURN_*` values below and rebuild the client. Confirm both users' IDE
+connection status says "Connected" before checking presence and edits. A
+Socket.IO connection to separate server processes will not synchronize rooms;
+for multiple backend instances, configure a shared Socket.IO adapter and
+sticky sessions.
+
 WebRTC uses a public STUN server by default. Set these client build-time
 variables for production connectivity:
 
