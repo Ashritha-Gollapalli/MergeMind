@@ -24,6 +24,33 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, "Password is required"],
       select: false,
+      minlength: 8,
+      maxlength: 72,
+      validate: {
+        validator: (password) =>
+          /[a-z]/.test(password) &&
+          /[A-Z]/.test(password) &&
+          /[0-9]/.test(password) &&
+          /[^A-Za-z0-9]/.test(password),
+        message:
+          "Password must include uppercase and lowercase letters, a number, and a special character",
+      },
+    },
+
+    resetOtpHash: {
+      type: String,
+      select: false,
+    },
+
+    resetOtpExpiresAt: {
+      type: Date,
+      select: false,
+    },
+
+    resetOtpAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
     },
 
     role: {

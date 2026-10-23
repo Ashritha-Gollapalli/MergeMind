@@ -4,16 +4,42 @@ import CodeEditor from "./components/CodeEditor";
 import "./App.css";
 
 function canEditProject(project, userId) {
+  if (!project || userId == null) {
+    return false;
+  }
+
   return Boolean(
     project?.members?.some((member) => {
-      const memberId =
-        typeof member.user === "string" ? member.user : member.user?._id;
+      const memberId = getMemberUserId(member);
 
       return (
+        memberId != null &&
         String(memberId) === String(userId) &&
         ["owner", "admin", "editor"].includes(member.role)
       );
     })
+  );
+}
+
+function getMemberUserId(member) {
+  return typeof member.user === "object"
+    ? member.user?._id ?? member.user?.id
+    : member.user;
+}
+
+function canManageProjectMembers(project, userId) {
+  if (!project || userId == null) {
+    return false;
+  }
+
+  const membership = project.members?.find((member) => {
+    const memberId = getMemberUserId(member);
+
+    return memberId != null && String(memberId) === String(userId);
+  });
+
+  return Boolean(
+    membership && ["owner", "admin"].includes(membership.role)
   );
 }
 
@@ -39,12 +65,17 @@ const [showCodeEditor, setShowCodeEditor] = useState(false);
     name: "",
     email: "",
     password: "",
+    otp: "",
   });
 
   const [projectForm, setProjectForm] = useState({
     name: "",
     description: "",
   });
+  const canManageMembers = canManageProjectMembers(
+    selectedProject,
+    user?.id || user?._id,
+  );
 
   async function loadProjects(activeToken) {
     const data = await apiRequest("/projects", {}, activeToken);
@@ -185,6 +216,34 @@ async function handleRemoveMember(userId) {
     setLoading(true);
 
     try {
+      if (mode === "forgot") {
+        const data = await apiRequest("/auth/forgot-password", {
+          method: "POST",
+          body: JSON.stringify({ email: authForm.email }),
+        });
+
+        setMode("reset");
+        setAuthForm({ ...authForm, otp: "", password: "" });
+        setSuccess(data.message);
+        return;
+      }
+
+      if (mode === "reset") {
+        const data = await apiRequest("/auth/reset-password", {
+          method: "POST",
+          body: JSON.stringify({
+            email: authForm.email,
+            otp: authForm.otp,
+            password: authForm.password,
+          }),
+        });
+
+        setMode("login");
+        setAuthForm({ ...authForm, otp: "", password: "" });
+        setSuccess(data.message);
+        return;
+      }
+
       const endpoint =
         mode === "login" ? "/auth/login" : "/auth/register";
 
@@ -207,6 +266,7 @@ async function handleRemoveMember(userId) {
           name: "",
           email: authForm.email,
           password: "",
+          otp: "",
         });
         setSuccess("Account created. Please log in.");
         return;
@@ -222,6 +282,26 @@ async function handleRemoveMember(userId) {
       setSuccess("Welcome to MergeMind!");
     } catch (err) {
       setError(err.message || "Authentication failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendResetCode() {
+    setError("");
+    setSuccess("");
+    setLoading(true);
+
+    try {
+      const data = await apiRequest("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: authForm.email }),
+      });
+
+      setAuthForm({ ...authForm, otp: "", password: "" });
+      setSuccess(data.message);
+    } catch (err) {
+      setError(err.message || "Could not send a reset code.");
     } finally {
       setLoading(false);
     }
@@ -378,6 +458,7 @@ async function handleRemoveMember(userId) {
           {selectedProject.members?.length || 0} total
         </span>
         </div>
+{canManageMembers && (
 <form className="invite-form" onSubmit={handleInviteMember}>
   <label>
     Collaborator email
@@ -410,11 +491,13 @@ async function handleRemoveMember(userId) {
     {memberLoading ? "Adding..." : "Add member"}
   </button>
 </form>
+)}
 
 
       <div className="member-list">
         {(selectedProject.members || []).map((member) => {
           const memberUser = member.user;
+          const memberUserId = getMemberUserId(member);
 
           return (
             <article
@@ -439,7 +522,9 @@ async function handleRemoveMember(userId) {
   <span className="role-badge">
     {member.role || "viewer"}
   </span>
-  {memberUser?._id !== selectedProject.owner?._id && (
+  {canManageMembers &&
+    member.role !== "owner" &&
+    memberUserId != null && (
     <>
       <select
         className="member-role-select"
@@ -670,15 +755,29 @@ async function handleRemoveMember(userId) {
       <section className="auth-panel">
         <div className="auth-card">
           <p className="eyebrow">
-            {mode === "login" ? "WELCOME BACK" : "GET STARTED"}
+            {mode === "login"
+              ? "WELCOME BACK"
+              : mode === "register"
+                ? "GET STARTED"
+                : "ACCOUNT RECOVERY"}
           </p>
           <h2>
-            {mode === "login" ? "Sign in to MergeMind" : "Create your account"}
+            {mode === "login"
+              ? "Sign in to MergeMind"
+              : mode === "register"
+                ? "Create your account"
+                : mode === "forgot"
+                  ? "Reset your password"
+                  : "Enter your reset code"}
           </h2>
           <p className="subtitle">
             {mode === "login"
               ? "Pick up where your team left off."
-              : "Join your team and start building."}
+              : mode === "register"
+                ? "Join your team and start building."
+                : mode === "forgot"
+                  ? "We’ll email you a one-time code to reset your password."
+                  : "Enter the 6-digit code from your email and choose a new password."}
           </p>
 
           {error && <div className="alert alert-error">{error}</div>}
@@ -694,6 +793,8 @@ async function handleRemoveMember(userId) {
                   name="name"
                   autoComplete="name"
                   required
+                  minLength={3}
+                  maxLength={80}
                   value={authForm.name}
                   onChange={handleAuthChange}
                   placeholder="Your name"
@@ -708,27 +809,73 @@ async function handleRemoveMember(userId) {
                 type="email"
                 autoComplete="email"
                 required
+                minLength={mode === "register" ? 5 : undefined}
+                maxLength={254}
+                pattern={mode === "register" ? ".{3,}@.+" : undefined}
+                title={
+                  mode === "register"
+                    ? "Enter an email address with at least 3 characters before @"
+                    : undefined
+                }
+                readOnly={mode === "reset"}
                 value={authForm.email}
                 onChange={handleAuthChange}
                 placeholder="you@example.com"
               />
             </label>
 
-            <label>
-              Password
-              <input
-                name="password"
-                type="password"
-                autoComplete={
-                  mode === "login" ? "current-password" : "new-password"
-                }
-                minLength={8}
-                required
-                value={authForm.password}
-                onChange={handleAuthChange}
-                placeholder="At least 8 characters"
-              />
-            </label>
+            {mode === "reset" && (
+              <label>
+                Email code
+                <input
+                  name="otp"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  minLength={6}
+                  maxLength={6}
+                  required
+                  value={authForm.otp}
+                  onChange={handleAuthChange}
+                  placeholder="6-digit code"
+                />
+              </label>
+            )}
+
+            {(mode === "login" ||
+              mode === "register" ||
+              mode === "reset") && (
+              <label>
+                {mode === "reset" ? "New password" : "Password"}
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete={
+                    mode === "login" ? "current-password" : "new-password"
+                  }
+                  minLength={mode === "login" ? undefined : 8}
+                  maxLength={72}
+                  pattern={
+                    mode === "login"
+                      ? undefined
+                      : "(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,72}"
+                  }
+                  title={
+                    mode === "login"
+                      ? undefined
+                      : "Use 8-72 characters with uppercase and lowercase letters, a number, and a special character"
+                  }
+                  required
+                  value={authForm.password}
+                  onChange={handleAuthChange}
+                  placeholder={
+                    mode === "login"
+                      ? "Enter your password"
+                      : "Uppercase, lowercase, number, and special character"
+                  }
+                />
+              </label>
+            )}
 
             <button
               className="button button-primary auth-submit"
@@ -739,27 +886,91 @@ async function handleRemoveMember(userId) {
                 ? "Please wait..."
                 : mode === "login"
                   ? "Sign in"
-                  : "Create account"}
+                  : mode === "register"
+                    ? "Create account"
+                    : mode === "forgot"
+                      ? "Send reset code"
+                      : "Change password"}
               {!loading && <span>→</span>}
             </button>
           </form>
 
           <p className="auth-switch">
-            {mode === "login"
-              ? "New to MergeMind?"
-              : "Already have an account?"}{" "}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                setMode(mode === "login" ? "register" : "login");
-                setError("");
-                setSuccess("");
-              }}
-            >
-              {mode === "login" ? "Create an account" : "Sign in"}
-            </button>
+            {mode === "login" ? (
+              <>
+                New to MergeMind?{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    setMode("register");
+                    setError("");
+                    setSuccess("");
+                  }}
+                >
+                  Create an account
+                </button>
+              </>
+            ) : mode === "register" ? (
+              <>
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    setMode("login");
+                    setError("");
+                    setSuccess("");
+                  }}
+                >
+                  Sign in
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    setMode("login");
+                    setError("");
+                    setSuccess("");
+                  }}
+                >
+                  Back to sign in
+                </button>
+                {mode === "reset" && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={handleResendResetCode}
+                      disabled={loading}
+                    >
+                      Resend code
+                    </button>
+                  </>
+                )}
+              </>
+            )}
           </p>
+
+          {mode === "login" && (
+            <p className="auth-switch">
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  setMode("forgot");
+                  setError("");
+                  setSuccess("");
+                }}
+              >
+                Forgot password?
+              </button>
+            </p>
+          )}
 
           <p className="auth-terms">
             Collaborate with your team, one project at a time.
