@@ -314,6 +314,16 @@ textarea {
   color: #ded8f3;
 }
 
+.button-danger {
+  border: 1px solid #7f303d;
+  background: #3b1720;
+  color: #fecdd3;
+}
+
+.button-danger:hover:not(:disabled) {
+  background: #54202b;
+}
+
 .auth-submit {
   width: 100%;
   margin-top: 5px;
@@ -544,7 +554,21 @@ textarea {
   font-weight: 700;
 }
 
-.project-card .status-dot {
+.project-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #c8c2d7;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.project-status-indicator {
+  display: block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
   background: #68dba1;
   box-shadow: 0 0 10px #68dba155;
 }
@@ -565,11 +589,19 @@ textarea {
 }
 
 .project-card-footer {
+  flex-wrap: wrap;
   margin-top: 20px;
   padding-top: 14px;
   border-top: 1px solid #2a2437;
   color: #aaa2bb;
   font-size: 10px;
+}
+
+.project-delete-button {
+  min-height: 32px;
+  margin-left: auto;
+  padding: 7px 10px;
+  font-size: 11px;
 }
 
 .empty-state {
