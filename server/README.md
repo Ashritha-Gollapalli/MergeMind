@@ -1,5 +1,19 @@
 # MergeMind server
 
+## Authentication and password reset
+
+Registration requires a name of at least 3 characters, a unique email address
+with at least 3 characters before `@`, and a password with at least 8
+characters including uppercase and lowercase letters, a number, and a special
+character. The password reset flow emails a 6-digit code that expires after 10
+minutes; codes are limited to 5 verification attempts.
+
+Configure SMTP in the server environment to send reset emails. Set
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS`; optionally set
+`SMTP_FROM` to the sender address (it defaults to `SMTP_USER`). The example
+values are in `.env.example`. Reset email delivery returns an error if SMTP is
+not configured or the mail server rejects the message.
+
 ## Isolated code execution
 
 The Run button executes the selected source file: `App.jsx` is rendered as a
