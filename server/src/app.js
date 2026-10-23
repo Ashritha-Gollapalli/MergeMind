@@ -5,10 +5,12 @@ const { getClientOrigins } = require("./config/clientOrigins");
 const authRoutes = require("./routes/authRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const app = express();
+app.set("trust proxy", 1);
 
 app.use(helmet());
 app.use(cors({ origin: getClientOrigins() }));
 app.use(express.json({ limit: "1mb" }));
+
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
