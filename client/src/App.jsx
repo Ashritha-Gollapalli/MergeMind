@@ -27,6 +27,19 @@ function getMemberUserId(member) {
     : member.user;
 }
 
+function isProjectOwner(project, userId) {
+  const ownerId =
+    typeof project?.owner === "object"
+      ? project.owner?._id ?? project.owner?.id
+      : project?.owner;
+
+  return (
+    ownerId != null &&
+    userId != null &&
+    String(ownerId) === String(userId)
+  );
+}
+
 function canManageProjectMembers(project, userId) {
   if (!project || userId == null) {
     return false;
@@ -72,6 +85,7 @@ const [showCodeEditor, setShowCodeEditor] = useState(false);
     name: "",
     description: "",
   });
+  const [deletingProjectId, setDeletingProjectId] = useState(null);
   const canManageMembers = canManageProjectMembers(
     selectedProject,
     user?.id || user?._id,
@@ -200,6 +214,39 @@ async function handleRemoveMember(userId) {
     await handleOpenProject(selectedProject._id);
   } catch (err) {
     setError(err.message || "Could not remove member.");
+  }
+}
+
+async function handleDeleteProject(project) {
+  const confirmed = window.confirm(
+    `Delete "${project.name}" and all of its project data? This cannot be undone.`,
+  );
+
+  if (!confirmed) return;
+
+  setError("");
+  setSuccess("");
+  setDeletingProjectId(project._id);
+
+  try {
+    const data = await apiRequest(
+      `/projects/${project._id}`,
+      { method: "DELETE" },
+      token,
+    );
+
+    setProjects((currentProjects) =>
+      currentProjects.filter((item) => item._id !== project._id),
+    );
+    if (selectedProject?._id === project._id) {
+      setSelectedProject(null);
+      setShowCodeEditor(false);
+    }
+    setSuccess(data.message || "Project deleted successfully.");
+  } catch (err) {
+    setError(err.message || "Could not delete the project.");
+  } finally {
+    setDeletingProjectId(null);
   }
 }
 
@@ -418,6 +465,18 @@ async function handleRemoveMember(userId) {
         </p>
       </div>
     </div>
+    {isProjectOwner(selectedProject, user?.id) && (
+      <button
+        className="button button-danger"
+        type="button"
+        onClick={() => handleDeleteProject(selectedProject)}
+        disabled={deletingProjectId === selectedProject._id}
+      >
+        {deletingProjectId === selectedProject._id
+          ? "Deleting..."
+          : "Delete project"}
+      </button>
+    )}
     <button
   className="button button-primary"
   onClick={() => setShowCodeEditor(true)}
@@ -663,6 +722,8 @@ async function handleRemoveMember(userId) {
   tabIndex={0}
   onClick={() => handleOpenProject(project._id)}
   onKeyDown={(event) => {
+    if (event.target !== event.currentTarget) return;
+
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       handleOpenProject(project._id);
@@ -673,7 +734,13 @@ async function handleRemoveMember(userId) {
                       <div className="project-icon">
                         {project.name?.charAt(0)?.toUpperCase() || "P"}
                       </div>
-                      <span className="status-dot">Active</span>
+                      <span className="project-status">
+                        <span
+                          className="project-status-indicator"
+                          aria-hidden="true"
+                        />
+                        Active
+                      </span>
                     </div>
 
                     <h3>{project.name}</h3>
@@ -689,6 +756,21 @@ async function handleRemoveMember(userId) {
                       <span>
                         {project.owner?.name ? `By ${project.owner.name}` : "Your project"}
                       </span>
+                      {isProjectOwner(project, user?.id) && (
+                        <button
+                          className="button button-danger project-delete-button"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteProject(project);
+                          }}
+                          disabled={deletingProjectId === project._id}
+                        >
+                          {deletingProjectId === project._id
+                            ? "Deleting..."
+                            : "Delete"}
+                        </button>
+                      )}
                     </div>
                   </article>
                 ))}
